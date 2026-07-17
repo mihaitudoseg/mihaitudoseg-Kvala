@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Page } from './types';
-import { Navigation } from './components/navigation';
+import { Navigation } from './components/nav-menu';
 import { Footer } from './components/Footer';
 import { EventPopup } from './components/EventPopup';
 import { Home } from './pages/Home';
