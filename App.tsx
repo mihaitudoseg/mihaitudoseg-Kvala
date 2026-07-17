@@ -1,4 +1,5 @@
 
+// Kvala Restaurant - Connected to GitHub and Netlify
 import React, { useState, useEffect } from 'react';
 import { Page } from './types';
 import { Navigation } from './components/nav-menu';
