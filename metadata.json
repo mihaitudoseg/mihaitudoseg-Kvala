@@ -1,0 +1,6 @@
+{
+  "name": "Kvala - Restaurant Grecesc",
+  "description": "Un colț de Grecia în inima cartierului Cotroceni. Bucătărie autentică, atmosferă mediteraneană și vinuri alese.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

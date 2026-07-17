@@ -1,0 +1,109 @@
+
+<!DOCTYPE html>
+<html lang="ro">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    
+    <!-- SEO Meta Tags -->
+    <title>Kvala - Restaurant Grecesc Cotroceni | Bucătărie Autentică</title>
+    <meta name="description" content="Descoperă gustul autentic al Greciei la Kvala, în inima cartierului Cotroceni. Fructe de mare proaspete, Kleftico de miel și atmosferă mediteraneană." />
+    <meta name="keywords" content="restaurant grecesc bucuresti, cotroceni, fructe de mare, taverna greceasca, kleftico, mancare greceasca" />
+    <meta property="og:title" content="Kvala - Restaurant Grecesc Cotroceni" />
+    <meta property="og:description" content="Suflet grecesc în inima Bucureștiului. Rezervă o masă pe WhatsApp." />
+    <meta property="og:type" content="website" />
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Lato:wght@300;400;700&family=Cinzel:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
+    
+    <!-- Librăria pentru PDF export - varianta Bundle (include html2canvas și jsPDF) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              'greek-blue': '#0057B7',
+              'greek-gold': '#C5A059',
+              'sand': '#FDFCF5',
+              'olive': '#556B2F',
+              'marble': '#F2F2F2',
+            },
+            fontFamily: {
+              serif: ['"Cormorant Garamond"', '"Playfair Display"', 'serif'],
+              sans: ['"Lato"', 'sans-serif'],
+              display: ['"Cinzel"', 'serif'],
+            },
+            animation: {
+              'fade-in': 'fadeIn 0.4s ease-out forwards',
+              'fade-in-up': 'fadeInUp 0.6s ease-out forwards',
+            },
+            keyframes: {
+              fadeIn: {
+                '0%': { opacity: '0' },
+                '100%': { opacity: '1' },
+              },
+              fadeInUp: {
+                '0%': { opacity: '0', transform: 'translateY(20px)' },
+                '100%': { opacity: '1', transform: 'translateY(0)' },
+              }
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+      body {
+        background-color: #FDFCF5; /* Sand color */
+        color: #1F2937;
+      }
+      /* Smooth scrolling */
+      html {
+        scroll-behavior: smooth;
+      }
+      .animate-fade-in-up {
+        animation: fadeInUp 0.6s ease-out forwards;
+      }
+
+      /* PRINT OVERRIDES */
+      @media print {
+        @page {
+          size: A4 landscape;
+          margin: 0mm;
+        }
+        
+        /* Resetări globale de print */
+        html, body {
+          width: 297mm !important;
+          height: auto !important;
+          background: white !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+
+        /* Ascundem tot restul aplicației */
+        #root, .no-print {
+          display: none !important;
+        }
+
+        /* Gestionare elegantă a paginilor */
+        .break-inside-avoid {
+          page-break-inside: avoid !important;
+          break-inside: avoid !important;
+        }
+      }
+      
+      /* Ascundem template-ul de print pe ecran normal */
+      #print-template-root {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
