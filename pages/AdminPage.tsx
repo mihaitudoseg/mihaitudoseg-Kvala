@@ -938,29 +938,93 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
         {activeTab === 'images' && (
           <div className="space-y-8 animate-fade-in-up">
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-              <h2 className="text-lg font-serif font-bold text-greek-blue mb-6 flex items-center gap-2"><ImageIcon className="h-5 w-5" /> Imagini Principale Site</h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <h2 className="text-lg font-serif font-bold text-greek-blue mb-6 flex items-center gap-2">
+                <ImageIcon className="h-5 w-5" /> Imagini Principale Site & Logo
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                 {[
-                  { key: 'hero', label: 'Imagine Hero (Antet Principal)' },
-                  { key: 'story', label: 'Imagine Poveste / Terasă' },
-                  { key: 'menuHeader', label: 'Imagine Antet Meniu' }
-                ].map(img => (
-                  <div key={img.key} className="p-4 border rounded-2xl bg-gray-50 flex flex-col items-center">
-                    <p className="text-xs font-bold text-gray-800 mb-3">{img.label}</p>
-                    <div className="w-full h-48 rounded-xl overflow-hidden bg-gray-200 relative mb-4 group shadow-inner">
-                      {siteImages[img.key as keyof SiteImages] ? (
-                        <img src={siteImages[img.key as keyof SiteImages]} className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-gray-400"><ImageIcon className="h-8 w-8" /></div>
-                      )}
-                      <label className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center cursor-pointer text-white text-xs font-bold uppercase transition-opacity">
-                        {isPersisting === img.key ? <Loader2 className="h-5 w-5 animate-spin mr-1" /> : <Upload className="h-5 w-5 mr-1" />}
-                        {isPersisting === img.key ? 'Se încarcă...' : 'Schimbă'}
-                        <input type="file" accept="image/*" className="hidden" onChange={e => handleImageUpload(img.key, e, false)} />
-                      </label>
+                  { key: 'hero', label: 'Imagine Hero (Antet Principal)', contain: false, hint: 'Recomandat 1920×1080px' },
+                  { key: 'story', label: 'Imagine Poveste / Terasă', contain: false, hint: 'Recomandat 1200×800px' },
+                  { key: 'menuHeader', label: 'Imagine Antet Meniu', contain: false, hint: 'Recomandat 1920×600px' },
+                  { key: 'logo', label: 'Logo Site', contain: true, hint: 'PNG / WebP transparent recomandat' }
+                ].map(img => {
+                  const currentImgUrl = siteImages[img.key as keyof SiteImages];
+                  const isLogo = img.key === 'logo';
+
+                  return (
+                    <div key={img.key} className="p-4 border border-gray-200 rounded-2xl bg-gray-50/70 flex flex-col items-center justify-between">
+                      <div className="w-full text-center mb-3">
+                        <p className="text-xs font-bold text-gray-800">{img.label}</p>
+                        <p className="text-[10px] text-gray-400 mt-0.5">{img.hint}</p>
+                      </div>
+
+                      <div className={`w-full h-44 rounded-xl overflow-hidden relative mb-3 group shadow-inner border border-gray-200/80 ${
+                        isLogo ? 'bg-white flex items-center justify-center p-3' : 'bg-gray-200'
+                      }`}>
+                        {currentImgUrl ? (
+                          <img 
+                            src={currentImgUrl} 
+                            alt={img.label}
+                            className={`w-full h-full ${img.contain ? 'object-contain' : 'object-cover'}`} 
+                          />
+                        ) : (
+                          <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 gap-1 p-2 text-center">
+                            <ImageIcon className="h-8 w-8 text-gray-300" />
+                            <span className="text-[11px] text-gray-400 font-medium">Nicio imagine încărcată</span>
+                          </div>
+                        )}
+
+                        <label className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center cursor-pointer text-white text-xs font-bold uppercase transition-opacity">
+                          {isPersisting === img.key ? (
+                            <Loader2 className="h-6 w-6 animate-spin mb-1" />
+                          ) : (
+                            <Upload className="h-6 w-6 mb-1" />
+                          )}
+                          <span>{isPersisting === img.key ? 'Se încarcă...' : currentImgUrl ? 'Schimbă' : 'Încarcă'}</span>
+                          <input 
+                            type="file" 
+                            accept={isLogo ? "image/png,image/webp,image/svg+xml,image/jpeg" : "image/*"} 
+                            className="hidden" 
+                            onChange={e => handleImageUpload(img.key, e, false)} 
+                          />
+                        </label>
+                      </div>
+
+                      <div className="w-full flex items-center gap-2">
+                        <label className="flex-1 py-2 px-3 bg-white hover:bg-gray-100 border border-gray-200 text-gray-700 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition-colors shadow-sm text-center">
+                          {isPersisting === img.key ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin text-greek-blue" />
+                          ) : (
+                            <Upload className="h-3.5 w-3.5 text-gray-500" />
+                          )}
+                          <span>{isPersisting === img.key ? 'Se procesează...' : currentImgUrl ? 'Înlocuiește' : 'Încarcă'}</span>
+                          <input 
+                            type="file" 
+                            accept={isLogo ? "image/png,image/webp,image/svg+xml,image/jpeg" : "image/*"} 
+                            className="hidden" 
+                            onChange={e => handleImageUpload(img.key, e, false)} 
+                          />
+                        </label>
+
+                        {isLogo && currentImgUrl && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (confirm('Doriți să ștergeți logo-ul personalizat și să reveniți la emblema standard?')) {
+                                await updateSiteImage('logo', '');
+                                showSaveFeedback('Logo-ul a fost resetat la emblema standard.');
+                              }
+                            }}
+                            className="p-2 text-gray-400 hover:text-red-600 bg-white hover:bg-red-50 border border-gray-200 rounded-xl transition-colors shadow-sm"
+                            title="Șterge logo-ul personalizat"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>

@@ -74,13 +74,17 @@ export const Navigation: React.FC<NavigationProps> = ({ currentPage, onNavigate 
         <div className="flex justify-between items-center h-20">
           {/* Logo */}
           <div 
-            className="flex items-center cursor-pointer group"
+            className="flex items-center cursor-pointer group shrink-0"
             onClick={() => handleNavClick(Page.HOME)}
           >
             {siteImages.logo ? (
-               <img src={siteImages.logo} alt="Kvala Logo" className="h-10 w-auto mr-3 object-contain" />
+               <img 
+                 src={siteImages.logo} 
+                 alt="Kvala Logo" 
+                 className="h-10 max-h-12 w-auto max-w-[130px] sm:max-w-[180px] mr-3 object-contain shrink-0" 
+               />
             ) : (
-               <div className={`${s.logoPill} p-2 rounded-full mr-3 group-hover:opacity-80 transition-all`}>
+               <div className={`${s.logoPill} p-2 rounded-full mr-3 group-hover:opacity-80 transition-all shrink-0`}>
                   <UtensilsCrossed className="h-6 w-6 text-white" />
                </div>
             )}
