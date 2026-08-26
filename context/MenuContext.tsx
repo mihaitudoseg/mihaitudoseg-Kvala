@@ -392,63 +392,10 @@ interface MenuContextType {
   updateSiteContent: (section: keyof SiteContent, key: string, value: any) => Promise<void>;
 }
 
-const getDefaultItemImage = (name: string, category: string): string => {
-  const lowerName = name.toLowerCase().trim();
-  
-  // Aperitive
-  if (lowerName.includes('humus')) return 'https://images.unsplash.com/photo-1547058886-f126989668e8?auto=format&fit=crop&q=80&w=800';
-  if (lowerName.includes('tzatziki')) return 'https://images.unsplash.com/photo-1571053748382-141b7de59b88?auto=format&fit=crop&q=80&w=800';
-  if (lowerName.includes('susan') || lowerName.includes('feta în crustă')) return 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&q=80&w=800';
-  if (lowerName.includes('halloumi')) return 'https://images.unsplash.com/photo-1551024506-0bccd828d307?auto=format&fit=crop&q=80&w=800';
-  if (lowerName.includes('dovlecei')) return 'https://images.unsplash.com/photo-1599487488170-d11ec9c172f0?auto=format&fit=crop&q=80&w=800';
-  if (lowerName.includes('icre')) return 'https://images.unsplash.com/photo-1541532713592-79a0317b6b77?auto=format&fit=crop&q=80&w=800';
-  if (lowerName.includes('melitzana')) return 'https://images.unsplash.com/photo-1518047601542-79f18c655718?auto=format&fit=crop&q=80&w=800';
-  if (lowerName.includes('tirokafteri')) return 'https://images.unsplash.com/photo-1571053748382-141b7de59b88?auto=format&fit=crop&q=80&w=800';
-  if (lowerName.includes('bouiourdi')) return 'https://images.unsplash.com/photo-1518047601542-79f18c655718?auto=format&fit=crop&q=80&w=800';
-  if (lowerName.includes('măsline') || lowerName.includes('masline')) return 'https://images.unsplash.com/photo-1541532713592-79a0317b6b77?auto=format&fit=crop&q=80&w=800';
-  
-  // Din mare
-  if (lowerName.includes('platou grill') || lowerName.includes('fructe de mare')) return 'https://images.unsplash.com/photo-1565557623262-b51c2513a641?auto=format&fit=crop&q=80&w=800';
-  if (lowerName.includes('kalamari') || lowerName.includes('calamar')) return 'https://images.unsplash.com/photo-1599487488170-d11ec9c172f0?auto=format&fit=crop&q=80&w=800';
-  if (lowerName.includes('creveți') || lowerName.includes('creveti')) return 'https://images.unsplash.com/photo-1534422298391-e4f8c172dddb?auto=format&fit=crop&q=80&w=800';
-  if (lowerName.includes('caracati')) return 'https://images.unsplash.com/photo-1565557623262-b51c2513a641?auto=format&fit=crop&q=80&w=800';
-  if (lowerName.includes('pește') || lowerName.includes('peste') || lowerName.includes('scoici') || lowerName.includes('midii')) return 'https://images.unsplash.com/photo-1519708227418-c8fd9a32b7a2?auto=format&fit=crop&q=80&w=800';
-  
-  // Tigaie Grecească & Gyros
-  if (lowerName.includes('gyros')) return 'https://images.unsplash.com/photo-1626700051175-6518c4793f4f?auto=format&fit=crop&q=80&w=800';
-  if (lowerName.includes('tigaie pui') || lowerName.includes('pui')) return 'https://images.unsplash.com/photo-1604503468506-a8da13d82791?auto=format&fit=crop&q=80&w=800';
-  if (lowerName.includes('tigaie porc') || lowerName.includes('porc')) return 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&q=80&w=800';
-  if (lowerName.includes('tigaie vită') || lowerName.includes('vită') || lowerName.includes('vita')) return 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&q=80&w=800';
-
-  // Specialități
-  if (lowerName.includes('kleftico')) return 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&q=80&w=800';
-  if (lowerName.includes('berbecuț') || lowerName.includes('berbecut')) return 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&q=80&w=800';
-
-  // Salate
-  if (lowerName.includes('horiatiki') || lowerName.includes('salată grecească') || lowerName.includes('salata greceasca')) return 'https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&q=80&w=800';
-  if (category === 'salate') return 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?auto=format&fit=crop&q=80&w=800';
-
-  // Desert
-  if (lowerName.includes('portokalopita')) return 'https://images.unsplash.com/photo-1551024601-bec78aea704b?auto=format&fit=crop&q=80&w=800';
-  if (lowerName.includes('clătite') || lowerName.includes('clatite')) return 'https://images.unsplash.com/photo-1567620905732-2d1ec7ab7445?auto=format&fit=crop&q=80&w=800';
-  if (lowerName.includes('ekmek') || lowerName.includes('kataif')) return 'https://images.unsplash.com/photo-1587314168485-3236d6710814?auto=format&fit=crop&q=80&w=800';
-  if (category === 'desert') return 'https://images.unsplash.com/photo-1551024601-bec78aea704b?auto=format&fit=crop&q=80&w=800';
-
-  // Vinuri & Bauturi
-  if (category === 'vinuri') {
-    if (lowerName.includes('bere') || lowerName.includes('mythos') || lowerName.includes('alfa') || lowerName.includes('mamos') || lowerName.includes('fix') || lowerName.includes('corona')) {
-      return 'https://images.unsplash.com/photo-1532634922-8fe0b757fb13?auto=format&fit=crop&q=80&w=800';
-    }
-    return 'https://images.unsplash.com/photo-1506377247377-2a5b3b417ebb?auto=format&fit=crop&q=80&w=800';
-  }
-
-  // Default general
-  return 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&q=80&w=800';
-};
-
 const MenuContext = createContext<MenuContextType | undefined>(undefined);
 
 const STORAGE_PREFIX = 'kvala_v3_stable_';
+const IMAGES_CLEARED_FLAG = 'kvala_menu_images_cleared_v1';
 
 const storage = {
   get: (key: string) => {
@@ -468,7 +415,13 @@ const storage = {
 export const MenuProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [menuItems, setMenuItems] = useState<MenuItem[]>(() => {
     const cached = storage.get('menu_items');
-    if (cached && Array.isArray(cached) && cached.length > 0) return cached;
+    if (cached && Array.isArray(cached) && cached.length > 0) {
+      // If initial cleanup hasn't run yet, clear images from cache
+      if (!localStorage.getItem(IMAGES_CLEARED_FLAG)) {
+        return cached.map((i: MenuItem) => ({ ...i, image: '' }));
+      }
+      return cached;
+    }
     return INITIAL_MENU_ITEMS;
   });
   
@@ -588,12 +541,12 @@ export const MenuProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const translatedMenuItems = useMemo(() => {
     return menuItems.map(item => {
-      const defaultImg = item.image || getDefaultItemImage(item.name, item.category);
+      const itemImg = item.image || '';
       
       if (language === 'ro') {
         return {
           ...item,
-          image: defaultImg
+          image: itemImg
         };
       }
       
@@ -603,43 +556,39 @@ export const MenuProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           ...item,
           name: trans.name,
           description: item.description ? trans.description : item.description,
-          image: defaultImg
+          image: itemImg
         };
       }
       return {
         ...item,
-        image: defaultImg
+        image: itemImg
       };
     });
   }, [menuItems, language]);
 
   const loadData = async () => {
-    // Oprim loading-ul vizual rapid deoarece am inițializat deja din cache/initial
     setIsLoading(false);
-    
     const safetyTimeout = setTimeout(() => setIsLoading(false), 3000);
 
-    // Încărcăm datele proaspete din Supabase în fundal
-    
-    // Produse
+    // Încărcăm datele proaspete din backend
     dbService.getMenuItems().then(items => {
       if (items && Array.isArray(items) && items.length > 0) {
-        // Sortăm și setăm produsele din DB fără a forța resetări automate
         const sortedItems = [...items].sort((a, b) => (a.order || 0) - (b.order || 0));
-        setMenuItems(sortedItems);
         
-        // Verificăm dacă lipsesc vinurile (caz special de migrare)
-        const hasWines = items.some(i => i.category === 'vinuri');
-        if (!hasWines) {
-          const wineItems = INITIAL_MENU_ITEMS.filter(i => i.category === 'vinuri');
-          const combinedItems = [...items, ...wineItems].sort((a, b) => (a.order || 0) - (b.order || 0));
-          setMenuItems(combinedItems);
+        // One-time menu image purge migration to clear all legacy stock/unsplash images
+        const hasRunCleanup = localStorage.getItem(IMAGES_CLEARED_FLAG);
+        if (!hasRunCleanup) {
+          const cleanedItems = sortedItems.map(i => ({ ...i, image: '' }));
+          setMenuItems(cleanedItems);
+          storage.set('menu_items', cleanedItems);
+          localStorage.setItem(IMAGES_CLEARED_FLAG, 'true');
           if (isDbConfigured) {
-            wineItems.forEach(w => dbService.updateMenuItem(w.id, w));
+            dbService.seedMenuItems(cleanedItems).catch(err => console.warn("Menu images cleanup sync error:", err));
           }
+        } else {
+          setMenuItems(sortedItems);
         }
       } else {
-        // Doar dacă DB e complet goală inițializăm
         console.log("DB goală, inițializăm cu meniul implicit");
         setMenuItems(INITIAL_MENU_ITEMS);
         if (isDbConfigured) {

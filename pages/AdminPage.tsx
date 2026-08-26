@@ -260,7 +260,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
       id: `promo_${Date.now()}`,
       name: 'Produs Nou Promo',
       description: 'Descriere promoție...',
-      image: 'https://picsum.photos/seed/promo/800/600',
+      image: '',
       tag: 'Promoție Nouă'
     };
     const newPromoItems = [...(siteContent.promoItems || []), newItem];

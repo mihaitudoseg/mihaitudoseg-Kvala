@@ -257,13 +257,6 @@ export const MenuPage: React.FC<MenuPageProps> = () => {
                            </span>
                          )
                        )}
-                       
-                       {/* Sommelier Pairing Recommendation specific to Byzantine luxurious setup */}
-                       {activeVariant === 'byzantine' && item.category !== 'vinuri' && item.category !== 'cocktails-fara-alcool' && (
-                         <div className="text-[9px] bg-greek-gold/10 text-greek-gold border border-greek-gold/15 px-3 py-1 rounded font-display uppercase tracking-wider">
-                           🏺 Sommelier pairing
-                         </div>
-                       )}
                     </div>
                   </div>
                 </div>

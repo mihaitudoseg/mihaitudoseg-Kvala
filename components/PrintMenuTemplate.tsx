@@ -89,13 +89,15 @@ const MenuItemCard: React.FC<{ item: MenuItem; isRecommendation?: boolean }> = (
         Recomandare
       </div>
     )}
-    <div className="w-full aspect-[21/7] rounded-xl overflow-hidden shadow-md border-2 border-white ring-1 ring-greek-gold/10 mb-2 bg-gray-50">
-      <img 
-        src={item.image || `https://picsum.photos/seed/${item.id}/1200/400`} 
-        alt={item.name} 
-        className="w-full h-full object-cover" 
-      />
-    </div>
+    {item.image && (
+      <div className="w-full aspect-[21/7] rounded-xl overflow-hidden shadow-md border-2 border-white ring-1 ring-greek-gold/10 mb-2 bg-gray-50">
+        <img 
+          src={item.image} 
+          alt={item.name} 
+          className="w-full h-full object-cover" 
+        />
+      </div>
+    )}
     <div className="flex-1 px-4">
       <div className="flex justify-between items-baseline gap-4 mb-1 border-b border-greek-gold/20 pb-0.5">
         <h3 className="text-lg font-serif font-black text-gray-900 uppercase leading-none tracking-tight">
