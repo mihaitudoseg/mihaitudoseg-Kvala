@@ -1,18 +1,15 @@
-
 import React, { useState, useEffect } from 'react';
 import { useMenu } from '../context/MenuContext';
-import { MenuItem, SiteImages, SiteContent, ReservationData, Category, PromoItem, Page } from '../types';
-import { dbDebugInfo, dbService, supabase } from '../services/db';
+import { MenuItem, SiteImages, SiteContent, ReservationData, PromoItem, Page } from '../types';
+import { dbDebugInfo, dbService, API_BASE_URL } from '../services/db';
 import { 
   Trash2, Upload, Plus, 
   ImageIcon, ArrowRight,
   Type, CheckCircle2, 
   Loader2, AlertCircle,
-  RefreshCcw, Home, Utensils, CalendarDays, PhoneCall, Info,
-  ShieldCheck, XCircle, User, Users, Calendar, Clock, Activity,
-  DatabaseZap, QrCode, Download, ExternalLink, Bell,
-  Eye, EyeOff, Layers, Settings2, Hash, FileText, Printer,
-  MessageCircle, FileDown, ChevronUp, ChevronDown, Star, Waves, Wine, GlassWater, Package
+  RefreshCcw, Home, Utensils, CalendarDays, Info,
+  ShieldCheck, Activity, DatabaseZap, Download,
+  Eye, EyeOff, Layers, Settings2, ChevronUp, ChevronDown, Star, X
 } from 'lucide-react';
 import { PrintMenuTemplate } from '../components/PrintMenuTemplate';
 import { TablematMenuTemplate } from '../components/TablematMenuTemplate';
@@ -30,9 +27,11 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     updateSiteImage, updateSiteContent, restoreDefaults
   } = useMenu();
   
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(() => !!dbService.getAuthToken());
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState(false);
+  const [loginErrorMessage, setLoginErrorMessage] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [activeTab, setActiveTab] = useState<'menu' | 'content' | 'images' | 'reservations' | 'system'>('menu');
@@ -48,8 +47,35 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [isDeletingHidden, setIsDeletingHidden] = useState(false);
+
+  // Add Product Modal State
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isSubmittingProduct, setIsSubmittingProduct] = useState(false);
+  const [addModalError, setAddModalError] = useState<string | null>(null);
+  const [newProductForm, setNewProductForm] = useState<{
+    name: string;
+    category: string;
+    price: string;
+    description: string;
+    weight: string;
+    calories: string;
+    imageFile: File | null;
+    imagePreview: string | null;
+  }>({
+    name: '',
+    category: '',
+    price: '',
+    description: '',
+    weight: '',
+    calories: '',
+    imageFile: null,
+    imagePreview: null
+  });
+
   const [dbStatus, setDbStatus] = useState<{
-    status: 'idle' | 'loading' | 'ok' | 'error_tables' | 'error_rls' | 'no_connection';
+    status: 'idle' | 'loading' | 'ok' | 'error';
+    latencyMs?: number;
+    menuCount?: number;
     message: string;
   }>({ status: 'idle', message: '' });
 
@@ -68,125 +94,157 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     if (isAuthenticated) {
       if (activeTab === 'reservations') loadReservations();
       if (activeTab === 'system') {
-        checkDatabaseTables();
         runDiagnostic();
       }
     }
   }, [activeTab, isAuthenticated]);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const adminPass = (import.meta as any).env.VITE_ADMIN_PASSWORD || 'admin123';
-    if (password === adminPass) {
-      setIsAuthenticated(true);
-      setLoginError(false);
-    } else {
+    setIsLoggingIn(true);
+    setLoginError(false);
+    setLoginErrorMessage('');
+
+    try {
+      const res = await dbService.login(password);
+      if (res.success) {
+        setIsAuthenticated(true);
+      } else {
+        setLoginError(true);
+        setLoginErrorMessage(res.error || 'Parolă incorectă');
+      }
+    } catch (err: any) {
       setLoginError(true);
+      setLoginErrorMessage(err.message || 'Eroare la autentificare');
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
-  if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
-        <div className="bg-white p-8 rounded-3xl shadow-xl border border-gray-200 w-full max-w-md">
-          <div className="flex flex-col items-center mb-8">
-            <div className="p-4 bg-blue-50 rounded-2xl mb-4">
-              <ShieldCheck className="h-10 w-10 text-greek-blue" />
-            </div>
-            <h1 className="text-2xl font-serif font-bold text-gray-900">Acces Restricționat</h1>
-            <p className="text-sm text-gray-500 font-medium">Introduceți parola pentru administrare</p>
-          </div>
-          
-          <form onSubmit={handleLogin} className="space-y-6">
-            <div>
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 block">Parolă Admin</label>
-              <input 
-                type="password" 
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className={`w-full bg-gray-50 border ${loginError ? 'border-red-500' : 'border-gray-200'} rounded-xl px-4 py-3 text-gray-900 focus:ring-2 focus:ring-greek-blue outline-none transition-all`}
-                placeholder="••••••••"
-                autoFocus
-              />
-              {loginError && <p className="text-red-500 text-[10px] font-bold uppercase mt-2 flex items-center gap-1"><AlertCircle className="h-3 w-3" /> Parolă incorectă</p>}
-            </div>
-            
-            <button 
-              type="submit"
-              className="w-full py-4 bg-greek-blue text-white rounded-2xl font-bold uppercase text-xs tracking-widest shadow-xl hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
-            >
-              Autentificare <ArrowRight className="h-4 w-4" />
-            </button>
-            
-            <button 
-              type="button"
-              onClick={() => window.location.href = '/'}
-              className="w-full py-3 text-gray-400 hover:text-gray-600 font-bold text-[10px] uppercase tracking-widest transition-colors"
-            >
-              Înapoi la Site
-            </button>
-          </form>
-        </div>
-      </div>
-    );
-  }
-
   const showSaveFeedback = (msg = "Salvat!") => {
     setSaveStatus(msg);
-    setTimeout(() => setSaveStatus(null), 2000);
+    setTimeout(() => setSaveStatus(null), 2500);
   };
 
   const loadReservations = async () => {
     setLoadingRes(true);
-    const data = await dbService.getReservations();
-    setReservations([...data].sort((a, b) => new Date(`${b.date}T${b.time}`).getTime() - new Date(`${a.date}T${a.time}`).getTime()));
-    setLoadingRes(false);
+    try {
+      const data = await dbService.getReservations();
+      setReservations([...data].sort((a, b) => new Date(`${b.date}T${b.time}`).getTime() - new Date(`${a.date}T${a.time}`).getTime()));
+    } finally {
+      setLoadingRes(false);
+    }
   };
 
-  const handlePromoImageUpload = (id: string, e: React.ChangeEvent<HTMLInputElement>) => {
+  const openAddProductModal = () => {
+    const defaultCat = (activeCategory !== 'all' && siteContent.categories.some(c => c.id === activeCategory))
+      ? activeCategory
+      : (siteContent.categories?.[0]?.id || 'aperitive');
+
+    setNewProductForm({
+      name: '',
+      category: defaultCat,
+      price: '',
+      description: '',
+      weight: '',
+      calories: '',
+      imageFile: null,
+      imagePreview: null
+    });
+    setAddModalError(null);
+    setIsAddModalOpen(true);
+  };
+
+  const closeAddProductModal = () => {
+    if (isSubmittingProduct) return;
+    setIsAddModalOpen(false);
+    setAddModalError(null);
+    if (newProductForm.imagePreview) {
+      URL.revokeObjectURL(newProductForm.imagePreview);
+    }
+  };
+
+  const handleModalImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const img = new Image();
-        img.onload = async () => {
-          const MAX_WIDTH = 800;
-          const MAX_HEIGHT = 800;
-          let width = img.width;
-          let height = img.height;
+      if (newProductForm.imagePreview) {
+        URL.revokeObjectURL(newProductForm.imagePreview);
+      }
+      setNewProductForm(prev => ({
+        ...prev,
+        imageFile: file,
+        imagePreview: URL.createObjectURL(file)
+      }));
+    }
+  };
 
-          if (width > height) {
-            if (width > MAX_WIDTH) {
-              height *= MAX_WIDTH / width;
-              width = MAX_WIDTH;
-            }
-          } else {
-            if (height > MAX_HEIGHT) {
-              width *= MAX_HEIGHT / height;
-              height = MAX_HEIGHT;
-            }
-          }
+  const handleCreateProductSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newProductForm.name.trim()) {
+      setAddModalError('Introduceți numele preparatului.');
+      return;
+    }
 
-          const canvas = document.createElement('canvas');
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          ctx?.drawImage(img, 0, 0, width, height);
+    setIsSubmittingProduct(true);
+    setAddModalError(null);
 
-          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.5);
-          
-          setIsPersisting(id);
-          try {
-            const newPromoItems = (siteContent.promoItems || []).map(item => 
-              item.id === id ? { ...item, image: compressedBase64 } : item
-            );
-            await updateSiteContent('promoItems', '', newPromoItems);
-            showSaveFeedback("Imagine promoțională salvată");
-          } finally { setIsPersisting(null); }
-        };
-        img.src = reader.result as string;
+    try {
+      const newId = `m_${Date.now()}`;
+      let uploadedImageUrl: string | undefined = undefined;
+
+      // Upload image to /upload.php if user picked an image
+      if (newProductForm.imageFile) {
+        uploadedImageUrl = await dbService.uploadImage(newProductForm.imageFile);
+      }
+
+      const numPrice = parseFloat(newProductForm.price.replace(',', '.')) || 0;
+
+      const newProduct: MenuItem = {
+        id: newId,
+        name: newProductForm.name.trim(),
+        category: newProductForm.category || siteContent.categories?.[0]?.id || 'uncategorized',
+        price: numPrice,
+        description: newProductForm.description.trim(),
+        weight: newProductForm.weight.trim() || undefined,
+        calories: newProductForm.calories.trim() || undefined,
+        image: uploadedImageUrl || undefined,
+        isHidden: false,
+        isHighlighted: false
       };
-      reader.readAsDataURL(file);
+
+      // Add to menu context and database (inserted at TOP of category)
+      await addMenuItem(newProduct);
+
+      // Automatically switch category filter to the newly created product's category
+      setActiveCategory(newProduct.category);
+
+      // Close modal and notify user
+      setIsAddModalOpen(false);
+      showSaveFeedback(`Preparatul „${newProduct.name}” a fost adăugat cu succes!`);
+    } catch (err: any) {
+      console.error('Error adding product:', err);
+      setAddModalError(err?.message || 'Eroare la salvarea produsului. Vă rugăm să reîncercați.');
+    } finally {
+      setIsSubmittingProduct(false);
+    }
+  };
+
+  const handlePromoImageUpload = async (id: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsPersisting(id);
+    try {
+      const uploadedUrl = await dbService.uploadImage(file);
+      const newPromoItems = (siteContent.promoItems || []).map(item => 
+        item.id === id ? { ...item, image: uploadedUrl } : item
+      );
+      await updateSiteContent('promoItems', '', newPromoItems);
+      showSaveFeedback("Imagine promoțională salvată");
+    } catch (err: any) {
+      alert(`Eroare la încărcarea imaginii: ${err.message}`);
+    } finally { 
+      setIsPersisting(null); 
     }
   };
 
@@ -218,50 +276,23 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     }
   };
 
-  const handleImageUpload = (id: string, e: React.ChangeEvent<HTMLInputElement>, isMenu = true) => {
+  const handleImageUpload = async (id: string, e: React.ChangeEvent<HTMLInputElement>, isMenu = true) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const img = new Image();
-        img.onload = async () => {
-          // Optimizare pentru viteză: 800px este suficient pentru web/mobil
-          const MAX_WIDTH = 800;
-          const MAX_HEIGHT = 800;
-          let width = img.width;
-          let height = img.height;
+    if (!file) return;
 
-          if (width > height) {
-            if (width > MAX_WIDTH) {
-              height *= MAX_WIDTH / width;
-              width = MAX_WIDTH;
-            }
-          } else {
-            if (height > MAX_HEIGHT) {
-              width *= MAX_HEIGHT / height;
-              height = MAX_HEIGHT;
-            }
-          }
-
-          const canvas = document.createElement('canvas');
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          ctx?.drawImage(img, 0, 0, width, height);
-
-          // Calitate 0.5 pentru un echilibru optim de viteză pe mobil
-          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.5);
-          
-          setIsPersisting(id);
-          try {
-            if (isMenu) await updateMenuItem(id, { image: compressedBase64 });
-            else await updateSiteImage(id as keyof SiteImages, compressedBase64);
-            showSaveFeedback("Imagine optimizată și salvată");
-          } finally { setIsPersisting(null); }
-        };
-        img.src = reader.result as string;
-      };
-      reader.readAsDataURL(file);
+    setIsPersisting(id);
+    try {
+      const uploadedUrl = await dbService.uploadImage(file);
+      if (isMenu) {
+        await updateMenuItem(id, { image: uploadedUrl });
+      } else {
+        await updateSiteImage(id as keyof SiteImages, uploadedUrl);
+      }
+      showSaveFeedback("Imagine încărcată și salvată!");
+    } catch (err: any) {
+      alert(`Eroare la încărcarea imaginii: ${err.message}`);
+    } finally { 
+      setIsPersisting(null); 
     }
   };
 
@@ -274,53 +305,17 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      // Eliminăm extensia și curățăm numele
       const productName = file.name.replace(/\.[^/.]+$/, "").trim();
       
       try {
-        const imageData: string = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => {
-            const img = new Image();
-            img.onload = () => {
-              const MAX_WIDTH = 800;
-              const MAX_HEIGHT = 800;
-              let width = img.width;
-              let height = img.height;
-              if (width > height) {
-                if (width > MAX_WIDTH) {
-                  height *= MAX_WIDTH / width;
-                  width = MAX_WIDTH;
-                }
-              } else {
-                if (height > MAX_HEIGHT) {
-                  width *= MAX_HEIGHT / height;
-                  height = MAX_HEIGHT;
-                }
-              }
-              const canvas = document.createElement('canvas');
-              canvas.width = width;
-              canvas.height = height;
-              const ctx = canvas.getContext('2d');
-              ctx?.drawImage(img, 0, 0, width, height);
-              resolve(canvas.toDataURL('image/jpeg', 0.5));
-            };
-            img.onerror = reject;
-            img.src = reader.result as string;
-          };
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-
-        // Căutăm produsul existent (case-insensitive)
+        const uploadedUrl = await dbService.uploadImage(file);
         const existingItem = menuItems.find(item => 
           item.name.toLowerCase().trim() === productName.toLowerCase()
         );
 
         if (existingItem) {
-          await updateMenuItem(existingItem.id, { image: imageData });
+          await updateMenuItem(existingItem.id, { image: uploadedUrl });
         } else {
-          // Creăm produs nou dacă nu există
           const newId = `m_bulk_${Date.now()}_${i}`;
           await addMenuItem({
             id: newId,
@@ -328,7 +323,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
             description: '',
             price: 0,
             category: siteContent.categories?.[0]?.id || 'uncategorized',
-            image: imageData,
+            image: uploadedUrl,
             isHidden: false
           });
         }
@@ -378,7 +373,6 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
       const newItemsInCategory = [...itemsInCategory];
       [newItemsInCategory[index - 1], newItemsInCategory[index]] = [newItemsInCategory[index], newItemsInCategory[index - 1]];
       
-      // Reconstruct full menuItems array with new order for this category
       const otherItems = menuItems.filter(item => item.category !== activeCategory);
       await reorderMenuItems([...otherItems, ...newItemsInCategory]);
       showSaveFeedback("Poziție actualizată");
@@ -392,111 +386,70 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     }
   };
 
-  const handleOpenPrintPreview = () => {
-    setShowPrintPreview(true);
-  };
-
-  const handleDownloadWord = () => {
-    const visibleMenuItems = menuItems.filter(item => !item.isHidden);
-    let html = `
-      <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
-      <head>
-        <meta charset='utf-8'>
-        <style>
-          body { font-family: 'Times New Roman', serif; }
-          h1 { color: #0057B7; text-align: center; }
-          h2 { color: #C5A059; border-bottom: 2px solid #C5A059; margin-top: 20pt; }
-        </style>
-      </head>
-      <body>
-        <h1>KVALA - TAVERNA URBANA</h1>
-        <p style='text-align:center;'>Meniu Exportat - ${new Date().toLocaleDateString('ro-RO')}</p>
-    `;
-
-    siteContent.categories.forEach(cat => {
-      const items = visibleMenuItems.filter(i => i.category === cat.id);
-      if (items.length > 0) {
-        html += `<h2>${cat.label}</h2>`;
-        items.forEach(item => {
-          const isHighlighted = item.isHighlighted;
-          html += `<p style="${isHighlighted ? 'background-color: #f0f7ff; border: 1px solid #C5A059; padding: 5pt;' : ''}">
-            <strong>${item.name}</strong> ${isHighlighted ? '★' : ''} - ${item.price} Lei<br/>
-            ${item.description || ''} ${item.weight ? '(' + item.weight + ')' : ''}
-          </p>`;
-        });
-      }
-    });
-
-    html += `</body></html>`;
-    const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `Meniu-Kvala-Word-${new Date().toISOString().split('T')[0]}.doc`;
-    link.click();
-  };
-
   const inputClass = "w-full bg-white border border-gray-300 rounded-md px-3 py-2 text-gray-900 focus:ring-2 focus:ring-greek-blue outline-none text-sm shadow-sm transition-colors";
   const labelClass = "text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block";
 
   const runDiagnostic = async () => {
-    if (!supabase) {
-      setDbStatus({ 
-        status: 'no_connection', 
-        message: 'Clientul Supabase nu este inițializat. Verificați MANUAL_URL și MANUAL_KEY în db.ts.' 
-      });
-      return;
-    }
-    setDbStatus({ status: 'loading', message: 'Se testează citirea și scrierea în cloud...' });
-    try {
-      // 1. Test select to see if the table exists
-      const { data, error } = await supabase.from('menu_items').select('id').limit(1);
-      if (error) {
-        setDbStatus({ 
-          status: 'error_tables', 
-          message: `Eroare citire: ${error.message}. Tabelele nu există încă în baza de date Supabase.` 
-        });
-        return;
-      }
-
-      // 2. Test writing to check RLS (Row Level Security) settings
-      const testKey = 'diag_' + Date.now();
-      const { error: writeError } = await supabase
-        .from('site_settings')
-        .upsert({ key: testKey, content: { test: true } });
-
-      if (writeError) {
-        if (writeError.message.toLowerCase().includes('security') || writeError.message.toLowerCase().includes('policy') || writeError.code === '42501' || (writeError as any).status === 401 || (writeError as any).status === 403) {
-          setDbStatus({
-            status: 'error_rls',
-            message: `RLS (Row Level Security) blochează scrierea de date. Trebuie dezactivat RLS sau setate politici publice în editorul SQL.`
-          });
-        } else {
-          setDbStatus({
-            status: 'error_rls',
-            message: `Eroare de scriere: ${writeError.message}`
-          });
-        }
-        return;
-      }
-
-      // Cleanup
-      await supabase.from('site_settings').delete().eq('key', testKey);
-
-      setDbStatus({
-        status: 'ok',
-        message: 'Conexiunea Cloud este 100% activă! Editările și pozele se salvează în cloud și sunt vizibile instant pe toate telefoanele și tabletele.'
-      });
-    } catch (err: any) {
-      setDbStatus({
-        status: 'no_connection',
-        message: `Eroare de rețea: ${err.message || err}`
-      });
-    }
+    setDbStatus({ status: 'loading', message: 'Se testează conexiunea la serverul api.wizart.ro...' });
+    const result = await dbService.testApiConnection();
+    setDbStatus({
+      status: result.status,
+      latencyMs: result.latencyMs,
+      menuCount: result.menuCount,
+      message: result.message
+    });
   };
 
-  function checkDatabaseTables() {
-    console.log("Checking system tables integrity...");
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+        <div className="bg-white p-8 rounded-3xl shadow-xl border border-gray-200 w-full max-w-md">
+          <div className="flex flex-col items-center mb-8">
+            <div className="p-4 bg-blue-50 rounded-2xl mb-4">
+              <ShieldCheck className="h-10 w-10 text-greek-blue" />
+            </div>
+            <h1 className="text-2xl font-serif font-bold text-gray-900">Acces Restricționat</h1>
+            <p className="text-sm text-gray-500 font-medium">Introduceți parola pentru administrare</p>
+          </div>
+          
+          <form onSubmit={handleLogin} className="space-y-6">
+            <div>
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 block">Parolă Admin</label>
+              <input 
+                type="password" 
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className={`w-full bg-gray-50 border ${loginError ? 'border-red-500' : 'border-gray-200'} rounded-xl px-4 py-3 text-gray-900 focus:ring-2 focus:ring-greek-blue outline-none transition-all`}
+                placeholder="••••••••"
+                autoFocus
+              />
+              {loginError && (
+                <p className="text-red-500 text-[10px] font-bold uppercase mt-2 flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3" /> {loginErrorMessage || 'Parolă incorectă'}
+                </p>
+              )}
+            </div>
+            
+            <button 
+              type="submit"
+              disabled={isLoggingIn}
+              className="w-full py-4 bg-greek-blue text-white rounded-2xl font-bold uppercase text-xs tracking-widest shadow-xl hover:bg-blue-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {isLoggingIn ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {isLoggingIn ? 'Se verifică...' : 'Autentificare'} {!isLoggingIn && <ArrowRight className="h-4 w-4" />}
+            </button>
+            
+            <button 
+              type="button"
+              onClick={() => onNavigate(Page.HOME)}
+              className="w-full py-3 text-gray-400 hover:text-gray-600 font-bold text-[10px] uppercase tracking-widest transition-colors"
+            >
+              Înapoi la Site
+            </button>
+          </form>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -521,6 +474,153 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
       {showBeveragePreview && (
         <BeverageMenuTemplate isPreview={true} onClose={() => setShowBeveragePreview(false)} />
+      )}
+
+      {/* Modal: Adaugă Produs Nou */}
+      {isAddModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in overflow-y-auto">
+          <div className="bg-white rounded-3xl shadow-2xl border border-gray-100 w-full max-w-lg overflow-hidden my-8">
+            <div className="bg-greek-blue text-white px-6 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Plus className="h-5 w-5" />
+                <h3 className="font-serif font-bold text-lg">Adaugă Produs Nou</h3>
+              </div>
+              <button 
+                type="button" 
+                onClick={closeAddProductModal}
+                disabled={isSubmittingProduct}
+                className="text-white/80 hover:text-white p-1 rounded-lg hover:bg-white/10 transition"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateProductSubmit} className="p-6 space-y-4">
+              {addModalError && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                  <span>{addModalError}</span>
+                </div>
+              )}
+
+              <div>
+                <label className={labelClass}>Nume Preparat *</label>
+                <input 
+                  type="text" 
+                  required
+                  value={newProductForm.name}
+                  onChange={e => setNewProductForm(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="Ex: Cotlet de berbecuț"
+                  className={inputClass}
+                  autoFocus
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className={labelClass}>Categorie *</label>
+                  <select 
+                    value={newProductForm.category}
+                    onChange={e => setNewProductForm(prev => ({ ...prev, category: e.target.value }))}
+                    className={inputClass}
+                  >
+                    {siteContent.categories?.map(c => (
+                      <option key={c.id} value={c.id}>{c.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className={labelClass}>Preț (Lei) *</label>
+                  <input 
+                    type="text" 
+                    value={newProductForm.price}
+                    onChange={e => setNewProductForm(prev => ({ ...prev, price: e.target.value }))}
+                    placeholder="Ex: 48"
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className={labelClass}>Descriere / Ingrediente</label>
+                <textarea 
+                  rows={2}
+                  value={newProductForm.description}
+                  onChange={e => setNewProductForm(prev => ({ ...prev, description: e.target.value }))}
+                  placeholder="Ex: roșii, castraveți, feta grecească, ulei de măsline Kalamata..."
+                  className={inputClass}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className={labelClass}>Gramaj (opțional)</label>
+                  <input 
+                    type="text" 
+                    value={newProductForm.weight}
+                    onChange={e => setNewProductForm(prev => ({ ...prev, weight: e.target.value }))}
+                    placeholder="Ex: 350gr"
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Kcal (opțional)</label>
+                  <input 
+                    type="text" 
+                    value={newProductForm.calories}
+                    onChange={e => setNewProductForm(prev => ({ ...prev, calories: e.target.value }))}
+                    placeholder="Ex: 420"
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className={labelClass}>Imagine Preparat (opțional)</label>
+                <div className="flex items-center gap-4">
+                  {newProductForm.imagePreview ? (
+                    <div className="w-16 h-16 rounded-xl overflow-hidden bg-gray-100 border relative flex-shrink-0">
+                      <img src={newProductForm.imagePreview} alt="Preview" className="w-full h-full object-cover" />
+                    </div>
+                  ) : (
+                    <div className="w-16 h-16 rounded-xl border-2 border-dashed border-gray-200 flex items-center justify-center text-gray-400 flex-shrink-0">
+                      <ImageIcon className="h-6 w-6" />
+                    </div>
+                  )}
+                  <label className="flex-1 cursor-pointer py-2 px-3 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-xl text-xs font-bold text-gray-700 flex items-center justify-center gap-2 transition">
+                    <Upload className="h-4 w-4 text-greek-blue" />
+                    <span>{newProductForm.imageFile ? newProductForm.imageFile.name : 'Alege Fișier Imagine'}</span>
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      onChange={handleModalImageChange} 
+                      className="hidden" 
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t flex items-center justify-end gap-3">
+                <button 
+                  type="button"
+                  onClick={closeAddProductModal}
+                  disabled={isSubmittingProduct}
+                  className="px-5 py-2.5 rounded-xl border border-gray-200 text-gray-600 font-bold text-xs uppercase hover:bg-gray-50 transition disabled:opacity-50"
+                >
+                  Anulează
+                </button>
+                <button 
+                  type="submit"
+                  disabled={isSubmittingProduct}
+                  className="px-6 py-2.5 rounded-xl bg-greek-blue text-white font-bold text-xs uppercase hover:bg-blue-700 shadow-md transition flex items-center gap-2 disabled:opacity-50"
+                >
+                  {isSubmittingProduct ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                  {isSubmittingProduct ? 'Se salvează...' : 'Adaugă Produs'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       <div className="max-w-7xl mx-auto px-4">
@@ -572,9 +672,6 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
         {activeTab === 'menu' && (
           <div className="space-y-8 animate-fade-in-up">
-
-
-
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
                <h2 className="text-lg font-serif font-bold text-greek-blue mb-4 flex items-center gap-2"><Layers className="h-5 w-5" /> Gestionare Categorii</h2>
                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -622,7 +719,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                   </button>
                 ))}
               </div>
-              <button onClick={() => addMenuItem({ id: `m_${Date.now()}`, name: 'Produs Nou', description: 'Descriere...', price: 0, category: siteContent.categories?.[0]?.id || 'uncategorized' })} className="bg-greek-blue text-white px-5 py-2 rounded-xl font-bold text-xs uppercase flex items-center gap-2 hover:bg-blue-700 transition shadow-lg"><Plus className="h-4 w-4" /> Adaugă Produs</button>
+              <button 
+                onClick={openAddProductModal} 
+                className="bg-greek-blue text-white px-5 py-2.5 rounded-xl font-bold text-xs uppercase flex items-center gap-2 hover:bg-blue-700 transition shadow-lg"
+              >
+                <Plus className="h-4 w-4" /> Adaugă Produs
+              </button>
             </div>
 
             <div className="grid grid-cols-1 gap-4">
@@ -630,7 +732,11 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                 <div key={item.id} className={`bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col md:flex-row transition-all hover:border-greek-blue/30 ${item.isHidden ? 'opacity-50 border-dashed bg-gray-50/50' : ''}`}>
                   <div className="w-full md:w-40 h-40 bg-gray-50 relative group flex-shrink-0">
                     {item.image ? <img src={item.image} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-300"><ImageIcon className="h-8 w-8" /></div>}
-                    <label className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center cursor-pointer text-white text-[10px] font-black uppercase transition-opacity"><Upload className="h-4 w-4 mr-1" /> Schimbă Poza<input type="file" className="hidden" onChange={e => handleImageUpload(item.id, e)} /></label>
+                    <label className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center cursor-pointer text-white text-[10px] font-black uppercase transition-opacity">
+                      {isPersisting === item.id ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Upload className="h-4 w-4 mr-1" />}
+                      {isPersisting === item.id ? 'Se încarcă...' : 'Schimbă Poza'}
+                      <input type="file" accept="image/*" className="hidden" onChange={e => handleImageUpload(item.id, e)} />
+                    </label>
                   </div>
                   <div className="p-5 flex-1 grid grid-cols-1 lg:grid-cols-4 gap-4">
                     <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -698,185 +804,272 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
           <div className="animate-fade-in-up">
             <div className="flex justify-between items-center mb-8">
               <div>
-                 <h2 className="text-2xl font-serif font-bold text-gray-900 flex items-center gap-2"><Calendar className="h-7 w-7 text-greek-blue" /> Agenda Rezervărilor</h2>
-                 <p className="text-sm text-gray-500 font-medium">Gestionați cererile primite de la clienți</p>
+                <h2 className="text-xl font-serif font-bold text-gray-900">Istoric Rezervări Online</h2>
+                <p className="text-xs text-gray-500">Toate rezervările primite prin formularul site-ului.</p>
               </div>
-              <button onClick={loadReservations} className="p-3 bg-white border border-gray-200 rounded-full hover:bg-gray-50 shadow-sm transition-all active:scale-95">
-                <RefreshCcw className={`h-5 w-5 text-greek-blue ${loadingRes ? 'animate-spin' : ''}`} />
+              <button 
+                onClick={loadReservations} 
+                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold rounded-xl flex items-center gap-2 transition-all"
+              >
+                <RefreshCcw className={`h-4 w-4 ${loadingRes ? 'animate-spin' : ''}`} /> Actualizează
               </button>
             </div>
-            
-            <div className="grid grid-cols-1 gap-4">
-              {reservations.length > 0 ? reservations.map(res => (
-                <div key={res.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col md:flex-row justify-between items-center gap-4 hover:border-greek-blue/40 transition-all">
-                  <div className="flex gap-6 items-center flex-1 w-full">
-                    <div className="text-center min-w-[70px] bg-blue-50 p-3 rounded-2xl">
-                       <p className="text-2xl font-black text-greek-blue leading-none">{res.time}</p>
-                       <p className="text-[10px] uppercase font-black text-blue-300 mt-1">{res.date}</p>
-                    </div>
-                    <div className="flex-1">
-                       <p className="font-bold text-gray-900 text-lg leading-tight">{res.name}</p>
-                       <p className="text-xs font-medium text-gray-500 flex items-center gap-1 mt-1"><PhoneCall className="h-3 w-3" /> {res.phone}</p>
-                    </div>
-                    <div className="px-4 py-2 bg-greek-blue text-white rounded-xl text-xs font-black shadow-sm flex items-center gap-2">
-                       <Users className="h-4 w-4" /> {res.guests} <span className="hidden sm:inline">Pers.</span>
-                    </div>
-                  </div>
-                  <div className="flex gap-2 w-full md:w-auto border-t md:border-t-0 pt-4 md:pt-0">
-                    <a href={`https://wa.me/${res.phone.replace(/\D/g,'')}`} target="_blank" className="flex-1 md:flex-none py-2 px-4 bg-green-50 text-green-600 rounded-xl hover:bg-green-100 transition flex items-center justify-center gap-2 font-bold text-xs uppercase"><MessageCircle className="h-4 w-4" /> WhatsApp</a>
-                    <button onClick={async () => { if(confirm('Sunteți sigur că doriți să ștergeți această rezervare?')) { await dbService.deleteReservation(res.id!); loadReservations(); showSaveFeedback("Șters!"); } }} className="p-2 text-gray-200 hover:text-red-500 transition-colors" title="Șterge"><Trash2 className="h-6 w-6" /></button>
-                  </div>
+
+            {loadingRes ? (
+              <div className="text-center py-20 bg-white rounded-3xl border border-gray-100">
+                <Loader2 className="h-8 w-8 text-greek-blue animate-spin mx-auto mb-2" />
+                <p className="text-xs text-gray-400 font-bold uppercase">Se încarcă rezervările...</p>
+              </div>
+            ) : reservations.length === 0 ? (
+              <div className="text-center py-20 bg-white rounded-3xl border border-gray-100">
+                <CalendarDays className="h-12 w-12 text-gray-200 mx-auto mb-4" />
+                <h3 className="text-base font-serif font-bold text-gray-900 mb-1">Nu există rezervări</h3>
+                <p className="text-xs text-gray-400">Rezervările trimise de clienți vor apărea automat aici.</p>
+              </div>
+            ) : (
+              <div className="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-200 text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                        <th className="py-4 px-6">Client</th>
+                        <th className="py-4 px-6">Telefon</th>
+                        <th className="py-4 px-6">Data & Ora</th>
+                        <th className="py-4 px-6">Persoane</th>
+                        <th className="py-4 px-6">Mențiuni</th>
+                        <th className="py-4 px-6 text-right">Acțiuni</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 text-sm">
+                      {reservations.map(res => (
+                        <tr key={res.id} className="hover:bg-gray-50/80 transition-colors">
+                          <td className="py-4 px-6 font-bold text-gray-900">{res.name}</td>
+                          <td className="py-4 px-6 text-gray-600 font-mono text-xs">{res.phone}</td>
+                          <td className="py-4 px-6 text-gray-900 font-medium">
+                            <span className="bg-blue-50 text-greek-blue px-2.5 py-1 rounded-lg text-xs font-bold mr-2">{res.date}</span>
+                            <span className="text-gray-500 font-bold">{res.time}</span>
+                          </td>
+                          <td className="py-4 px-6 text-gray-600 font-bold">{res.guests} pers.</td>
+                          <td className="py-4 px-6 text-gray-500 text-xs italic">{res.notes || '-'}</td>
+                          <td className="py-4 px-6 text-right">
+                            <button 
+                              onClick={async () => {
+                                if (res.id && confirm('Ștergi această rezervare?')) {
+                                  await dbService.deleteReservation(res.id);
+                                  loadReservations();
+                                  showSaveFeedback("Rezervare ștearsă");
+                                }
+                              }}
+                              className="p-2 text-gray-300 hover:text-red-500 transition-colors rounded-lg hover:bg-red-50"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              )) : (
-                <div className="bg-white py-24 text-center rounded-3xl border border-dashed border-gray-300 flex flex-col items-center">
-                   <Calendar className="h-16 w-16 text-gray-200 mb-4" />
-                   <p className="text-gray-400 font-bold uppercase tracking-[0.2em] text-sm">Nicio rezervare înregistrată</p>
-                </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         )}
 
         {activeTab === 'content' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-fade-in-up">
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 space-y-8">
-              <div>
-                 <h2 className="text-xl font-serif font-bold text-greek-blue mb-6 flex items-center gap-2 border-b pb-3"><Home className="h-5 w-5" /> Homepage & Poveste</h2>
-                 <div className="space-y-4">
-                    <div><label className={labelClass}>Titlu Principal (Hero)</label><input type="text" value={siteContent.home.heroTitle} onChange={(e) => { updateSiteContent('home', 'heroTitle', e.target.value); showSaveFeedback(); }} className={inputClass} /></div>
-                    <div><label className={labelClass}>Subtitlu (Locație)</label><input type="text" value={siteContent.home.heroSubtitle} onChange={(e) => { updateSiteContent('home', 'heroSubtitle', e.target.value); showSaveFeedback(); }} className={inputClass} /></div>
-                    <div className="pt-4"><label className={labelClass}>Titlu Secțiune Poveste</label><input type="text" value={siteContent.home.storyTitle} onChange={(e) => { updateSiteContent('home', 'storyTitle', e.target.value); showSaveFeedback(); }} className={inputClass} /></div>
-                    <div><label className={labelClass}>Text Poveste (Paragraf)</label><textarea rows={6} value={siteContent.home.storyText} onChange={(e) => { updateSiteContent('home', 'storyText', e.target.value); showSaveFeedback(); }} className={inputClass} /></div>
+          <div className="space-y-8 animate-fade-in-up">
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+               <h2 className="text-lg font-serif font-bold text-greek-blue mb-4 flex items-center gap-2"><Type className="h-5 w-5" /> Informații Generale Site</h2>
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                 <div>
+                   <label className={labelClass}>Titlu Principal (Hero)</label>
+                   <input type="text" value={siteContent.home.heroTitle} onChange={e => updateSiteContent('home', 'heroTitle', e.target.value)} className={inputClass} />
                  </div>
-              </div>
-
-              <div>
-                 <h2 className="text-xl font-serif font-bold text-greek-blue mb-6 flex items-center gap-2 border-b pb-3"><Utensils className="h-5 w-5" /> Pagina Meniu Client</h2>
-                 <div className="space-y-4">
-                    <div><label className={labelClass}>Titlu Pagina Meniu</label><input type="text" value={siteContent.menuPage.title} onChange={(e) => { updateSiteContent('menuPage', 'title', e.target.value); showSaveFeedback(); }} className={inputClass} /></div>
-                    <div><label className={labelClass}>Descriere Scurtă</label><input type="text" value={siteContent.menuPage.description} onChange={(e) => { updateSiteContent('menuPage', 'description', e.target.value); showSaveFeedback(); }} className={inputClass} /></div>
+                 <div>
+                   <label className={labelClass}>Subtitlu Principal (Hero)</label>
+                   <input type="text" value={siteContent.home.heroSubtitle} onChange={e => updateSiteContent('home', 'heroSubtitle', e.target.value)} className={inputClass} />
                  </div>
-              </div>
+                 <div>
+                   <label className={labelClass}>Telefon Rezervări</label>
+                   <input type="text" value={siteContent.general.phone} onChange={e => updateSiteContent('general', 'phone', e.target.value)} className={inputClass} />
+                 </div>
+                 <div>
+                   <label className={labelClass}>Adresă Restaurant</label>
+                   <input type="text" value={siteContent.general.address} onChange={e => updateSiteContent('general', 'address', e.target.value)} className={inputClass} />
+                 </div>
+                 <div>
+                   <label className={labelClass}>Program de Funcționare</label>
+                   <input type="text" value={siteContent.general.hours} onChange={e => updateSiteContent('general', 'hours', e.target.value)} className={inputClass} />
+                 </div>
+                 <div>
+                   <label className={labelClass}>Email Contact</label>
+                   <input type="text" value={siteContent.general.email} onChange={e => updateSiteContent('general', 'email', e.target.value)} className={inputClass} />
+                 </div>
+                 <div>
+                   <label className={labelClass}>Instagram Handle</label>
+                   <input type="text" value={siteContent.general.instagram} onChange={e => updateSiteContent('general', 'instagram', e.target.value)} className={inputClass} />
+                 </div>
+                 <div>
+                   <label className={labelClass}>Facebook Page</label>
+                   <input type="text" value={siteContent.general.facebook} onChange={e => updateSiteContent('general', 'facebook', e.target.value)} className={inputClass} />
+                 </div>
+               </div>
             </div>
 
-            <div className="space-y-8">
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
-                <h2 className="text-xl font-serif font-bold text-greek-blue mb-6 flex items-center gap-2 border-b pb-3"><CalendarDays className="h-5 w-5" /> Rezervări & Contact</h2>
-                <div className="space-y-4">
-                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div><label className={labelClass}>Program de Funcționare</label><input type="text" value={siteContent.general.hours} onChange={(e) => { updateSiteContent('general', 'hours', e.target.value); showSaveFeedback(); }} className={inputClass} /></div>
-                      <div><label className={labelClass}>Telefon WhatsApp</label><input type="text" value={siteContent.general.phone} onChange={(e) => { updateSiteContent('general', 'phone', e.target.value); showSaveFeedback(); }} className={inputClass} /></div>
-                   </div>
-                   <div><label className={labelClass}>Email Contact</label><input type="text" value={siteContent.general.email} onChange={(e) => { updateSiteContent('general', 'email', e.target.value); showSaveFeedback(); }} className={inputClass} /></div>
-                   <div><label className={labelClass}>Adresă Completă</label><textarea rows={2} value={siteContent.general.address} onChange={(e) => { updateSiteContent('general', 'address', e.target.value); showSaveFeedback(); }} className={inputClass} /></div>
-                   <div className="pt-4"><label className={labelClass}>Slogan Subsol (Footer)</label><input type="text" value={siteContent.general.footerTagline} onChange={(e) => { updateSiteContent('general', 'footerTagline', e.target.value); showSaveFeedback(); }} className={inputClass} /></div>
-                </div>
-              </div>
-
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 border-l-4 border-l-greek-gold">
-                <div className="flex items-center justify-between mb-6 border-b pb-3">
-                   <h2 className="text-xl font-serif font-bold text-greek-gold flex items-center gap-2"><Bell className="h-5 w-5" /> Pop-up Notificare</h2>
-                   <div className="flex items-center gap-2 bg-yellow-50 px-3 py-1 rounded-full border border-yellow-100">
-                      <span className="text-[10px] font-black uppercase text-yellow-700">Activ</span>
-                      <input type="checkbox" checked={siteContent.popup.isActive} onChange={(e) => { updateSiteContent('popup', 'isActive', e.target.checked); showSaveFeedback(); }} className="h-5 w-5 accent-greek-gold cursor-pointer" />
-                   </div>
-                </div>
-                <div className="space-y-4">
-                   <div><label className={labelClass}>Titlu Anunț</label><input type="text" value={siteContent.popup.title} onChange={(e) => { updateSiteContent('popup', 'title', e.target.value); showSaveFeedback(); }} className={inputClass} /></div>
-                   <div><label className={labelClass}>Mesaj / Detalii Eveniment</label><textarea rows={3} value={siteContent.popup.message} onChange={(e) => { updateSiteContent('popup', 'message', e.target.value); showSaveFeedback(); }} className={inputClass} /></div>
-                </div>
-              </div>
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+               <h2 className="text-lg font-serif font-bold text-greek-blue mb-4 flex items-center gap-2"><Info className="h-5 w-5" /> Banner Informativ Disponibilitate Weekend</h2>
+               <div className="space-y-4">
+                 <p className="text-xs text-gray-500 leading-relaxed">
+                   Acest text este afișat în partea superioară a paginilor de <b>Meniu</b> și <b>Rezervări</b>, precum și pe pagina principală.
+                 </p>
+                 <div>
+                   <label className={labelClass}>Text Notificare Weekend</label>
+                   <textarea 
+                     rows={3}
+                     value={siteContent.home?.weekendNotice || ''} 
+                     onChange={e => updateSiteContent('home', 'weekendNotice', e.target.value)} 
+                     className={inputClass} 
+                   />
+                 </div>
+               </div>
             </div>
           </div>
         )}
 
         {activeTab === 'images' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 animate-fade-in-up">
-            {[
-              { key: 'logo', label: 'Logo Site (Fundal alb/transparent)', desc: 'Folosit în navigare.' },
-              { key: 'hero', label: 'Imagine Background Principală', desc: 'Prima imagine pe homepage.' },
-              { key: 'story', label: 'Imagine Secțiune Poveste', desc: 'Mijlocul paginii principale.' },
-              { key: 'menuHeader', label: 'Banner Pagina Meniu', desc: 'Imaginea de sus din meniu.' },
-              { key: 'tablematImage', label: 'Imagine Set Masă (A3)', desc: 'Imaginea mare din subsolul setului de masă.' }
-            ].map(item => (
-              <div key={item.key} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col h-full">
-                <div className="mb-4">
-                   <h3 className="font-serif font-bold text-gray-800">{item.label}</h3>
-                   <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold">{item.desc}</p>
-                </div>
-                <div className={`aspect-video bg-gray-50 rounded-xl overflow-hidden relative group border border-gray-100 mb-4 ${item.key === 'logo' ? 'flex items-center justify-center p-4' : ''}`}>
-                  {siteImages[item.key as keyof SiteImages] ? (
-                    <img 
-                      src={siteImages[item.key as keyof SiteImages]} 
-                      className={item.key === 'logo' ? 'max-h-full max-w-full object-contain' : 'w-full h-full object-cover'} 
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-gray-300 italic text-[10px] font-bold uppercase tracking-widest">Nicio imagine setată</div>
-                  )}
-                  <label className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-all flex flex-col items-center justify-center cursor-pointer text-white text-[10px] font-black uppercase">
-                     <Upload className="h-6 w-6 mb-2" /> 
-                     <span>Încarcă Imagine</span>
-                     <input type="file" className="hidden" onChange={(e) => handleImageUpload(item.key, e, false)} />
-                  </label>
-                </div>
-                <div className="mt-auto bg-gray-50 p-2 rounded-lg border border-gray-100">
-                  <p className="text-[9px] text-gray-400 font-mono truncate">{siteImages[item.key as keyof SiteImages] || 'Fără URL definit'}</p>
-                </div>
+          <div className="space-y-8 animate-fade-in-up">
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+              <h2 className="text-lg font-serif font-bold text-greek-blue mb-6 flex items-center gap-2"><ImageIcon className="h-5 w-5" /> Imagini Principale Site</h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {[
+                  { key: 'hero', label: 'Imagine Hero (Antet Principal)' },
+                  { key: 'story', label: 'Imagine Poveste / Terasă' },
+                  { key: 'menuHeader', label: 'Imagine Antet Meniu' }
+                ].map(img => (
+                  <div key={img.key} className="p-4 border rounded-2xl bg-gray-50 flex flex-col items-center">
+                    <p className="text-xs font-bold text-gray-800 mb-3">{img.label}</p>
+                    <div className="w-full h-48 rounded-xl overflow-hidden bg-gray-200 relative mb-4 group shadow-inner">
+                      {siteImages[img.key as keyof SiteImages] ? (
+                        <img src={siteImages[img.key as keyof SiteImages]} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-400"><ImageIcon className="h-8 w-8" /></div>
+                      )}
+                      <label className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center cursor-pointer text-white text-xs font-bold uppercase transition-opacity">
+                        {isPersisting === img.key ? <Loader2 className="h-5 w-5 animate-spin mr-1" /> : <Upload className="h-5 w-5 mr-1" />}
+                        {isPersisting === img.key ? 'Se încarcă...' : 'Schimbă'}
+                        <input type="file" accept="image/*" className="hidden" onChange={e => handleImageUpload(img.key, e, false)} />
+                      </label>
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
+            </div>
           </div>
         )}
 
         {activeTab === 'system' && (
-          <div className="animate-fade-in-up grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div className="space-y-8 animate-fade-in-up">
+            {/* System / Backend Diagnostic for api.wizart.ro */}
             <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
-               <h2 className="text-xl font-serif font-bold text-greek-gold mb-6 flex items-center gap-2 border-b border-greek-gold/20 pb-4"><QrCode className="h-7 w-7" /> Cod QR Meniu</h2>
-               <div className="flex flex-col items-center">
-                 <div className="bg-white p-6 border-2 border-gray-100 rounded-3xl mb-6 shadow-inner">
-                    <img src={`https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent((siteContent.general.publicUrl || window.location.origin).replace(/\/$/, '') + '/?page=menu')}`} className="w-48 h-48" />
-                 </div>
-                 <div className="w-full space-y-4 text-center">
-                    <p className="text-xs text-gray-500 leading-relaxed font-medium">Acest cod permite clienților să acceseze meniul scanându-l cu telefonul. Îl puteți printa și pune pe mesele restaurantului.</p>
-                    
-                     <div className="bg-amber-50 p-4 rounded-xl border border-amber-100 text-left mb-4">
-                        <label className="text-[10px] font-black text-amber-600 uppercase tracking-widest mb-1 block">URL Public (IMPORTANT)</label>
-                        <p className="text-[10px] text-amber-700 mb-2 leading-tight">Am setat automat URL-ul public (<b>https://kvala.ro</b>) pentru ca QR-ul să meargă pe orice telefon.</p>
-                        <input 
-                          type="text" 
-                          placeholder="https://kvala.ro"
-                          value={siteContent.general.publicUrl || ''} 
-                          onChange={(e) => { updateSiteContent('general', 'publicUrl', e.target.value); showSaveFeedback(); }}
-                          className="w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-greek-blue font-mono text-[10px] outline-none focus:ring-2 focus:ring-amber-400" 
-                        />
-                     </div>
-                    <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
-                       <label className={labelClass}>URL Destinație QR (Final)</label>
-                       <input 
-                         type="text" 
-                         readOnly 
-                         value={(siteContent.general.publicUrl || window.location.origin).replace(/\/$/, '') + '/?page=menu'} 
-                         className="w-full bg-white border border-blue-200 rounded-lg px-3 py-2 text-greek-blue font-mono text-[10px] outline-none" 
-                       />
+               <div className="flex justify-between items-center border-b pb-4 mb-6">
+                 <h2 className="text-xl font-serif font-bold text-greek-blue flex items-center gap-2"><Activity className="h-7 w-7" /> Stare Backend & Sincronizare Cloud (api.wizart.ro)</h2>
+                 <button 
+                   onClick={runDiagnostic} 
+                   className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold rounded-xl flex items-center gap-2 transition-all shadow-sm"
+                   title="Re-testează conexiunea la server"
+                 >
+                   <RefreshCcw className={`h-4 w-4 ${dbStatus.status === 'loading' ? 'animate-spin' : ''}`} /> Re-testează Serverul
+                 </button>
+               </div>
+               
+               <div className="space-y-6">
+                  {/* Status Box */}
+                  <div className={`p-6 rounded-2xl border transition-all ${
+                    dbStatus.status === 'ok' ? 'bg-green-50 border-green-200 text-green-800' :
+                    dbStatus.status === 'loading' ? 'bg-blue-50 border-blue-200 text-blue-800' :
+                    dbStatus.status === 'error' ? 'bg-red-50 border-red-200 text-red-800' :
+                    'bg-gray-50 border-gray-200 text-gray-700'
+                  }`}>
+                    <div className="flex items-start gap-4">
+                      {dbStatus.status === 'ok' && <CheckCircle2 className="h-6 w-6 text-green-600 mt-0.5 flex-shrink-0" />}
+                      {dbStatus.status === 'loading' && <Loader2 className="h-6 w-6 text-blue-600 mt-0.5 animate-spin flex-shrink-0" />}
+                      {dbStatus.status === 'error' && <AlertCircle className="h-6 w-6 text-red-600 mt-0.5 flex-shrink-0" />}
+                      {dbStatus.status === 'idle' && <Activity className="h-6 w-6 text-gray-400 mt-0.5 flex-shrink-0" />}
+                      
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-1">
+                          <p className="font-bold text-xs uppercase tracking-wider">Backend API: {API_BASE_URL}</p>
+                          {dbStatus.latencyMs !== undefined && (
+                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-white/80 border">
+                              {dbStatus.latencyMs} ms
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm font-medium leading-relaxed">
+                          {dbStatus.message || 'Apăsați pe butonul de re-testare de mai sus pentru a verifica conexiunea în timp real.'}
+                        </p>
+                      </div>
                     </div>
-                    <button onClick={() => window.print()} className="w-full py-4 bg-greek-blue text-white rounded-2xl font-bold uppercase text-xs flex items-center justify-center gap-3 hover:bg-blue-700 transition shadow-xl"><Download className="h-5 w-5" /> Printează Codul QR</button>
-                 </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Total Preparate Meniu</p>
+                      <p className="text-2xl font-serif font-black text-greek-blue">{menuItems.length}</p>
+                      <p className="text-[11px] text-gray-500 mt-1">Sincronizate cu api.wizart.ro</p>
+                    </div>
+                    <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Preparate Ascunse</p>
+                      <p className="text-2xl font-serif font-black text-orange-600">{menuItems.filter(i => i.isHidden).length}</p>
+                      <p className="text-[11px] text-gray-500 mt-1">Vizibile doar în admin</p>
+                    </div>
+                    <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Categorii Active</p>
+                      <p className="text-2xl font-serif font-black text-emerald-600">{siteContent.categories?.length || 0}</p>
+                      <p className="text-[11px] text-gray-500 mt-1">Structură meniu</p>
+                    </div>
+                  </div>
+
+                  {/* Bulk delete hidden */}
+                  {menuItems.filter(i => i.isHidden).length > 0 && (
+                    <button 
+                      onClick={async () => {
+                        const hiddenCount = menuItems.filter(i => i.isHidden).length;
+                        setIsDeletingHidden(true);
+                        try {
+                          await deleteHiddenMenuItems();
+                          showSaveFeedback(`Succes: ${hiddenCount} produse șterse!`);
+                        } catch (e) {
+                          console.error("Delete error:", e);
+                          showSaveFeedback("Eroare la ștergere!");
+                        } finally {
+                          setIsDeletingHidden(false);
+                        }
+                      }}
+                      disabled={isDeletingHidden}
+                      className="w-full py-3 bg-orange-50 text-orange-600 border border-orange-200 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-orange-100 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      {isDeletingHidden ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                      {isDeletingHidden ? 'Se șterge...' : `Șterge Toate Cele ${menuItems.filter(i => i.isHidden).length} Produse Ascunse`}
+                    </button>
+                  )}
                </div>
             </div>
 
+            {/* Mass import */}
             <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
-               <h2 className="text-xl font-serif font-bold text-greek-blue mb-6 flex items-center gap-2 border-b pb-4"><DatabaseZap className="h-7 w-7" /> Import Masiv Date</h2>
+               <h2 className="text-xl font-serif font-bold text-greek-blue mb-6 flex items-center gap-2 border-b pb-4"><DatabaseZap className="h-7 w-7" /> Import Masiv Poze</h2>
                <div className="space-y-6">
                   <div className="p-6 bg-blue-50 rounded-2xl border border-blue-100">
-                     <h4 className="text-xs font-black uppercase text-greek-blue tracking-widest mb-3 flex items-center gap-2"><Upload className="h-4 w-4" /> Importă Poze Glovo / Editates</h4>
+                     <h4 className="text-xs font-black uppercase text-greek-blue tracking-widest mb-3 flex items-center gap-2"><Upload className="h-4 w-4" /> Încarcă Poze Multiple în Cloud (/upload.php)</h4>
                      <p className="text-[11px] text-gray-600 leading-relaxed mb-5">
-                       Selectați mai multe fișiere simultan. Sistemul va extrage numele produsului din numele fișierului și va actualiza imaginea produsului existent sau va crea unul nou dacă nu este găsit.
+                       Selectați mai multe fișiere simultan. Imaginile se încarcă direct pe serverul api.wizart.ro prin /upload.php și se asociază automat preparatelor existente.
                      </p>
                      
                      <label className={`w-full py-4 flex flex-col items-center justify-center border-2 border-dashed border-greek-blue/30 rounded-2xl cursor-pointer hover:bg-white transition-all group ${isPersisting === 'bulk' ? 'opacity-50 pointer-events-none' : ''}`}>
                         {isPersisting === 'bulk' ? (
                           <div className="flex flex-col items-center">
                             <Loader2 className="h-8 w-8 text-greek-blue animate-spin mb-2" />
-                            <span className="text-[10px] font-black uppercase text-greek-blue">Se procesează pozele...</span>
+                            <span className="text-[10px] font-black uppercase text-greek-blue">Se încarcă pozele pe server...</span>
                           </div>
                         ) : (
                           <>
@@ -895,202 +1088,39 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                         )}
                      </label>
                   </div>
-                  
-                  <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
-                     <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-2">Instrucțiuni:</p>
-                     <ul className="text-[10px] text-gray-500 space-y-1 list-disc pl-4">
-                       <li>Numele fișierului (ex: "Pizza Margherita.jpg") trebuie să fie identic cu numele produsului.</li>
-                       <li>Imaginile vor fi optimizate automat înainte de upload.</li>
-                       <li>Dacă produsul nu există, va fi creat automat în prima categorie disponibilă.</li>
-                     </ul>
-                  </div>
                </div>
             </div>
 
-            <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
-               <div className="flex justify-between items-center border-b pb-4 mb-6">
-                 <h2 className="text-xl font-serif font-bold text-greek-blue flex items-center gap-2"><Activity className="h-7 w-7" /> Diagnostic & Sincronizare Cloud</h2>
+            {/* Reset */}
+            <div className="p-6 bg-red-50 rounded-2xl border border-red-100">
+               <h4 className="text-[10px] font-black uppercase text-red-600 tracking-widest mb-2 flex items-center gap-2"><AlertCircle className="h-3 w-3" /> Zonă Periculoasă</h4>
+               <p className="text-[11px] text-red-700 leading-snug mb-4">Resetarea va reinițializa datele din meniu la valorile implicite.</p>
+               
+               {!showResetConfirm ? (
                  <button 
-                   onClick={runDiagnostic} 
-                   className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold rounded-lg flex items-center gap-1.5 transition-all"
-                   title="Re-testează conexiunea cloud"
+                   onClick={() => setShowResetConfirm(true)} 
+                   className="w-full py-3 bg-white border-2 border-red-200 text-red-600 rounded-xl text-xs font-black uppercase hover:bg-red-50 transition-all"
                  >
-                   <RefreshCcw className={`h-3 w-3 ${dbStatus.status === 'loading' ? 'animate-spin' : ''}`} /> Re-testează
+                   Resetare Totală Date
                  </button>
-               </div>
-               <div className="space-y-6">
-                  {/* Status Box */}
-                  <div className={`p-5 rounded-2xl border transition-all ${
-                    dbStatus.status === 'ok' ? 'bg-green-50 border-green-200 text-green-800' :
-                    dbStatus.status === 'loading' ? 'bg-blue-50 border-blue-200 text-blue-800' :
-                    dbStatus.status === 'error_rls' ? 'bg-amber-50 border-amber-200 text-amber-800' :
-                    dbStatus.status === 'error_tables' ? 'bg-red-50 border-red-200 text-red-800' :
-                    'bg-gray-50 border-gray-200 text-gray-700'
-                  }`}>
-                    <div className="flex items-start gap-3">
-                      {dbStatus.status === 'ok' && <CheckCircle2 className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />}
-                      {dbStatus.status === 'loading' && <Loader2 className="h-5 w-5 text-blue-600 mt-0.5 animate-spin flex-shrink-0" />}
-                      {(dbStatus.status === 'error_rls' || dbStatus.status === 'error_tables' || dbStatus.status === 'no_connection') && <AlertCircle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />}
-                      {dbStatus.status === 'idle' && <Activity className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />}
-                      
-                      <div className="flex-1">
-                        <p className="font-bold text-xs uppercase tracking-wider mb-1">Status Sincronizare Real-Time</p>
-                        <p className="text-sm font-medium">{dbStatus.message || 'Apăsați pe butonul de re-testare de mai sus pentru a verifica statusul.'}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* SQL Setup Helper for User */}
-                  {(dbStatus.status === 'error_tables' || dbStatus.status === 'error_rls' || dbStatus.status === 'idle') && (
-                    <div className="bg-blue-50 border border-blue-200 p-6 rounded-2xl">
-                      <h4 className="text-sm font-bold text-blue-900 mb-2 flex items-center gap-1.5">
-                        <DatabaseZap className="h-5 w-5 text-greek-blue" /> Cum activez salvarea permanentă și online?
-                      </h4>
-                      <p className="text-xs text-blue-700 leading-relaxed mb-4">
-                        Pentru ca modificările și pozele adăugate în panoul de administrare să fie salvate online permanent (pe internet) și să apară instant tuturor clienților de pe telefoane, trebuie să vă asigurați că tabelele sunt create corect în contul dvs. de <b>Supabase</b> și au securitatea (RLS) configurată corect.
-                      </p>
-                      
-                      <p className="text-xs font-bold text-blue-900 mb-2">Instrucțiuni simple pas cu pas:</p>
-                      <ol className="text-xs text-blue-700 list-decimal pl-4 mb-4 space-y-1">
-                        <li>Intrați în contul dvs. <b>Supabase</b> (la proiectul <code>ewpshixprglxtrsmdhyq</code>).</li>
-                        <li>Din meniul din stânga, dați click pe <b>SQL Editor</b>.</li>
-                        <li>Apăsați pe <b>"New query"</b> (Query nou).</li>
-                        <li>Copiați codul SQL de mai jos, lipiți-l în editor și apăsați butonul <b>Run</b> (Rulează).</li>
-                      </ol>
-
-                      <div className="relative mb-4">
-                        <div className="absolute top-2 right-2">
-                          <button 
-                            onClick={() => {
-                              const sqlCode = document.getElementById('supabase-sql-script')?.innerText;
-                              if (sqlCode) {
-                                navigator.clipboard.writeText(sqlCode);
-                                showSaveFeedback("Copiat în clipboard!");
-                              }
-                            }}
-                            className="bg-white hover:bg-gray-100 text-greek-blue border border-gray-200 px-2 py-1 rounded text-[10px] font-bold shadow-sm transition-all animate-pulse"
-                          >
-                            Copiază Codul SQL
-                          </button>
-                        </div>
-                        <pre 
-                          id="supabase-sql-script"
-                          className="bg-gray-900 text-gray-100 font-mono text-[9px] p-4 rounded-xl max-h-48 overflow-y-auto leading-relaxed border border-gray-800"
-                        >
-{`-- 1. Creează tabela pentru preparatele din meniu (menu_items)
-CREATE TABLE IF NOT EXISTS public.menu_items (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    description TEXT,
-    price NUMERIC,
-    category TEXT,
-    weight TEXT,
-    calories TEXT,
-    "order" INTEGER,
-    "isHighlighted" BOOLEAN DEFAULT false,
-    "isHidden" BOOLEAN DEFAULT false,
-    image TEXT
-);
-
--- 2. Creează tabela pentru setările site-ului (site_settings)
-CREATE TABLE IF NOT EXISTS public.site_settings (
-    key TEXT PRIMARY KEY,
-    content JSONB NOT NULL
-);
-
--- 3. Creează tabela pentru rezervări (reservations)
-CREATE TABLE IF NOT EXISTS public.reservations (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    phone TEXT,
-    guests INTEGER,
-    date TEXT,
-    time TEXT,
-    notes TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
-);
-
--- 4. Dezactivează Row Level Security (RLS) pentru simplitate, ca oricine să poată edita din aplicație:
-ALTER TABLE public.menu_items DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.site_settings DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.reservations DISABLE ROW LEVEL SECURITY;`}
-                        </pre>
-                      </div>
-                      <p className="text-[10px] text-blue-600 italic">După rularea codului în editorul SQL Supabase, apăsați pe butonul <b>Re-testează</b> de mai sus pentru a confirma conexiunea!</p>
-                    </div>
-                  )}
-
-                  <div className="p-5 bg-gray-50 rounded-2xl border border-gray-100 space-y-4">
-                     <div className="grid grid-cols-2 gap-4">
-                        <div className="text-center p-3 bg-white rounded-xl shadow-sm border border-gray-100">
-                           <p className="text-2xl font-black text-greek-blue leading-none">{menuItems.length}</p>
-                           <p className="text-[10px] font-bold text-gray-400 uppercase mt-1">Preparate</p>
-                        </div>
-                        <div className="text-center p-3 bg-white rounded-xl shadow-sm border border-gray-100">
-                           <p className="text-2xl font-black text-orange-600 leading-none">{menuItems.filter(i => i.isHidden).length}</p>
-                           <p className="text-[10px] font-bold text-gray-400 uppercase mt-1">Ascunse</p>
-                        </div>
-                     </div>
-                     {menuItems.filter(i => i.isHidden).length > 0 && (
-                       <button 
-                         onClick={async () => {
-                           const hiddenCount = menuItems.filter(i => i.isHidden).length;
-                           if (hiddenCount === 0) {
-                             showSaveFeedback("Nu sunt produse ascunse.");
-                             return;
-                           }
-                           
-                           setIsDeletingHidden(true);
-                           try {
-                             await deleteHiddenMenuItems();
-                             showSaveFeedback(`Succes: ${hiddenCount} produse șterse!`);
-                           } catch (e) {
-                             console.error("Delete error:", e);
-                             showSaveFeedback("Eroare la ștergere!");
-                           } finally {
-                             setIsDeletingHidden(false);
-                           }
-                         }}
-                         disabled={isDeletingHidden}
-                         className="w-full py-3 bg-orange-50 text-orange-600 border border-orange-200 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-orange-100 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-                       >
-                         {isDeletingHidden ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                         {isDeletingHidden ? 'Se șterge...' : 'Șterge Toate Produsele Ascunse'}
-                       </button>
-                     )}
-                  </div>
-                  
-                  <div className="p-4 bg-red-50 rounded-2xl border border-red-100">
-                     <h4 className="text-[10px] font-black uppercase text-red-600 tracking-widest mb-2 flex items-center gap-2"><AlertCircle className="h-3 w-3" /> Zonă Periculoasă</h4>
-                     <p className="text-[11px] text-red-700 leading-snug mb-4">Resetarea va șterge orice modificare personalizată și va reveni la meniul și setările de bază.</p>
-                     
-                     {!showResetConfirm ? (
-                       <button 
-                         onClick={() => setShowResetConfirm(true)} 
-                         className="w-full py-3 bg-white border-2 border-red-200 text-red-600 rounded-xl text-xs font-black uppercase hover:bg-red-50 transition-all"
-                       >
-                         Resetare Totală Date
-                       </button>
-                     ) : (
-                       <div className="flex gap-2">
-                         <button 
-                           onClick={handleFullReset} 
-                           disabled={isResetting}
-                           className="flex-1 py-3 bg-red-600 text-white rounded-xl text-xs font-black uppercase hover:bg-red-700 shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-                         >
-                           {isResetting ? <><Loader2 className="h-4 w-4 animate-spin" /> Se resetează...</> : 'Sunt sigur, Resetează!'}
-                         </button>
-                         <button 
-                           onClick={() => setShowResetConfirm(false)} 
-                           disabled={isResetting}
-                           className="px-4 py-3 bg-white border border-gray-200 text-gray-500 rounded-xl text-xs font-black uppercase hover:bg-gray-50 transition-all disabled:opacity-50"
-                         >
-                           Anulează
-                         </button>
-                       </div>
-                     )}
-                  </div>
-               </div>
+               ) : (
+                 <div className="flex gap-2">
+                   <button 
+                     onClick={handleFullReset} 
+                     disabled={isResetting}
+                     className="flex-1 py-3 bg-red-600 text-white rounded-xl text-xs font-black uppercase hover:bg-red-700 shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                   >
+                     {isResetting ? <><Loader2 className="h-4 w-4 animate-spin" /> Se resetează...</> : 'Sunt sigur, Resetează!'}
+                   </button>
+                   <button 
+                     onClick={() => setShowResetConfirm(false)} 
+                     disabled={isResetting}
+                     className="px-4 py-3 bg-white border border-gray-200 text-gray-500 rounded-xl text-xs font-black uppercase hover:bg-gray-50 transition-all disabled:opacity-50"
+                   >
+                     Anulează
+                   </button>
+                 </div>
+               )}
             </div>
           </div>
         )}

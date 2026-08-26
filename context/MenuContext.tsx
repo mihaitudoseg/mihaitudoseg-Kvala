@@ -726,8 +726,12 @@ export const MenuProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const addMenuItem = async (item: MenuItem) => {
-    const newItem = { ...item, order: menuItems.length };
-    setMenuItems(prev => [...prev, newItem]);
+    const newItem = { ...item, order: 0 };
+    const updatedItems = [
+      newItem,
+      ...menuItems.map((existing, idx) => ({ ...existing, order: idx + 1 }))
+    ];
+    setMenuItems(updatedItems);
     await dbService.updateMenuItem(newItem.id, newItem);
   };
 
