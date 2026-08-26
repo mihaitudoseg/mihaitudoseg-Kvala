@@ -66,19 +66,33 @@ const loginAdmin = async (password: string): Promise<boolean> => {
   }
 };
 
-// Transitional compatibility with the existing AdminPage. The old UI already
-// exposes VITE_ADMIN_PASSWORD to the browser, so using it here does not make the
-// current setup less secure. AdminPage will be moved to explicit token login next.
+const requestServerPassword = async (): Promise<boolean> => {
+  if (typeof window === 'undefined') return false;
+  const entered = window.prompt('Introduceți parola de administrator pentru salvarea pe server:');
+  if (!entered) return false;
+  return loginAdmin(entered);
+};
+
 const ensureAdminToken = async (): Promise<string> => {
   const existing = getStoredToken();
   if (existing) return existing;
 
-  const configuredPassword = (import.meta as any).env?.VITE_ADMIN_PASSWORD || 'admin123';
-  const ok = await loginAdmin(configuredPassword);
-  if (!ok) throw new Error('Admin authentication failed');
+  // Transitional compatibility: try the old Netlify admin password once.
+  const configuredPassword = (import.meta as any).env?.VITE_ADMIN_PASSWORD || '';
+  if (configuredPassword) {
+    const ok = await loginAdmin(configuredPassword);
+    if (ok) {
+      const token = getStoredToken();
+      if (token) return token;
+    }
+  }
+
+  // If the frontend password differs from the new server password, ask once.
+  const promptedOk = await requestServerPassword();
+  if (!promptedOk) throw new Error('Autentificarea pe server a eșuat');
 
   const token = getStoredToken();
-  if (!token) throw new Error('Admin token was not stored');
+  if (!token) throw new Error('Tokenul de administrator nu a fost salvat');
   return token;
 };
 
@@ -99,10 +113,11 @@ const apiJson = async (
 
   let response = await fetch(`${API_BASE}${path}`, { ...options, headers });
 
-  // If an 8-hour token expired, refresh once using the existing admin password.
   if (requireAuth && response.status === 401) {
     clearToken();
-    const token = await ensureAdminToken();
+    const promptedOk = await requestServerPassword();
+    if (!promptedOk) throw new Error('Sesiunea de administrator a expirat');
+    const token = getStoredToken();
     headers.set('Authorization', `Bearer ${token}`);
     response = await fetch(`${API_BASE}${path}`, { ...options, headers });
   }
@@ -113,6 +128,14 @@ const apiJson = async (
   }
 
   return data;
+};
+
+const showWriteError = (error: unknown) => {
+  console.error(error);
+  if (typeof window !== 'undefined') {
+    const message = error instanceof Error ? error.message : String(error);
+    window.alert(`Salvarea pe server a eșuat: ${message}`);
+  }
 };
 
 const uploadDataUrl = async (dataUrl: string): Promise<string> => {
@@ -132,7 +155,9 @@ const uploadDataUrl = async (dataUrl: string): Promise<string> => {
 
   if (response.status === 401) {
     clearToken();
-    const refreshed = await ensureAdminToken();
+    const promptedOk = await requestServerPassword();
+    if (!promptedOk) throw new Error('Sesiunea de administrator a expirat');
+    const refreshed = getStoredToken();
     response = await fetch(`${API_BASE}/upload.php`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${refreshed}` },
@@ -179,8 +204,6 @@ export const dbDebugInfo = {
   source: 'Self-hosted API (api.wizart.ro)'
 };
 
-// Kept only so the existing AdminPage import continues to compile during the
-// migration. The System diagnostic will be converted away from Supabase next.
 export const supabase = null;
 
 export const dbService = {
@@ -213,76 +236,94 @@ export const dbService = {
   },
 
   async updateMenuItem(id: string, fullItem: MenuItem) {
-    const persistentItem = {
-      ...fullItem,
-      image: fullItem.image ? await uploadDataUrl(fullItem.image) : fullItem.image
-    };
+    try {
+      const persistentItem = {
+        ...fullItem,
+        image: fullItem.image ? await uploadDataUrl(fullItem.image) : fullItem.image
+      };
 
-    const currentItems = storage.get('menu_items') || [];
-    const index = currentItems.findIndex((i: any) => i.id === id);
-    const updatedItems = index !== -1
-      ? currentItems.map((item: any) => item.id === id ? persistentItem : item)
-      : [...currentItems, persistentItem];
-    storage.save('menu_items', updatedItems);
+      const currentItems = storage.get('menu_items') || [];
+      const index = currentItems.findIndex((i: any) => i.id === id);
+      const updatedItems = index !== -1
+        ? currentItems.map((item: any) => item.id === id ? persistentItem : item)
+        : [...currentItems, persistentItem];
+      storage.save('menu_items', updatedItems);
 
-    await apiJson('/menu.php', {
-      method: 'POST',
-      body: JSON.stringify({ action: 'upsert', item: persistentItem })
-    }, true);
+      await apiJson('/menu.php', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'upsert', item: persistentItem })
+      }, true);
 
-    return persistentItem;
+      return persistentItem;
+    } catch (error) {
+      showWriteError(error);
+      throw error;
+    }
   },
 
   async deleteMenuItem(id: string) {
-    const items = (storage.get('menu_items') || []).filter((i: any) => i.id !== id);
-    storage.save('menu_items', items);
+    try {
+      const items = (storage.get('menu_items') || []).filter((i: any) => i.id !== id);
+      storage.save('menu_items', items);
 
-    await apiJson('/menu.php', {
-      method: 'POST',
-      body: JSON.stringify({ action: 'delete', id })
-    }, true);
+      await apiJson('/menu.php', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'delete', id })
+      }, true);
+    } catch (error) {
+      showWriteError(error);
+      throw error;
+    }
   },
 
   async deleteMenuItemsBulk(ids: string[]) {
-    const currentItems = storage.get('menu_items') || [];
-    storage.save('menu_items', currentItems.filter((i: any) => !ids.includes(i.id)));
+    try {
+      const currentItems = storage.get('menu_items') || [];
+      storage.save('menu_items', currentItems.filter((i: any) => !ids.includes(i.id)));
 
-    if (ids.length > 0) {
-      await apiJson('/menu.php', {
-        method: 'POST',
-        body: JSON.stringify({ action: 'delete_bulk', ids })
-      }, true);
+      if (ids.length > 0) {
+        await apiJson('/menu.php', {
+          method: 'POST',
+          body: JSON.stringify({ action: 'delete_bulk', ids })
+        }, true);
+      }
+    } catch (error) {
+      showWriteError(error);
+      throw error;
     }
   },
 
   async seedMenuItems(items: MenuItem[]) {
-    const persistentItems: MenuItem[] = [];
-    for (const item of items) {
-      persistentItems.push({
-        ...item,
-        image: item.image ? await uploadDataUrl(item.image) : item.image
-      });
-    }
+    try {
+      const persistentItems: MenuItem[] = [];
+      for (const item of items) {
+        persistentItems.push({
+          ...item,
+          image: item.image ? await uploadDataUrl(item.image) : item.image
+        });
+      }
 
-    // Make this behave like the old seed method when needed, but without the
-    // dangerous delete-everything-then-insert window.
-    const current = await this.getMenuItems() || [];
-    const wantedIds = new Set(persistentItems.map(i => i.id));
-    const staleIds = current.filter(i => !wantedIds.has(i.id)).map(i => i.id);
+      const current = await this.getMenuItems() || [];
+      const wantedIds = new Set(persistentItems.map(i => i.id));
+      const staleIds = current.filter(i => !wantedIds.has(i.id)).map(i => i.id);
 
-    if (staleIds.length) {
+      if (staleIds.length) {
+        await apiJson('/menu.php', {
+          method: 'POST',
+          body: JSON.stringify({ action: 'delete_bulk', ids: staleIds })
+        }, true);
+      }
+
       await apiJson('/menu.php', {
         method: 'POST',
-        body: JSON.stringify({ action: 'delete_bulk', ids: staleIds })
+        body: JSON.stringify({ action: 'bulk_upsert', items: persistentItems })
       }, true);
+
+      storage.save('menu_items', persistentItems);
+    } catch (error) {
+      showWriteError(error);
+      throw error;
     }
-
-    await apiJson('/menu.php', {
-      method: 'POST',
-      body: JSON.stringify({ action: 'bulk_upsert', items: persistentItems })
-    }, true);
-
-    storage.save('menu_items', persistentItems);
   },
 
   async getReservations(): Promise<ReservationData[]> {
@@ -303,10 +344,15 @@ export const dbService = {
   },
 
   async deleteReservation(id: string) {
-    await apiJson('/data.php?resource=reservations', {
-      method: 'POST',
-      body: JSON.stringify({ action: 'delete', id })
-    }, true);
+    try {
+      await apiJson('/data.php?resource=reservations', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'delete', id })
+      }, true);
+    } catch (error) {
+      showWriteError(error);
+      throw error;
+    }
   },
 
   async getSiteContent(): Promise<SiteContent | null> {
@@ -323,15 +369,20 @@ export const dbService = {
   },
 
   async saveSiteContent(content: SiteContent) {
-    const persistentContent = await replaceBase64ImagesDeep(content) as SiteContent;
-    storage.save('site_content', persistentContent);
+    try {
+      const persistentContent = await replaceBase64ImagesDeep(content) as SiteContent;
+      storage.save('site_content', persistentContent);
 
-    await apiJson('/data.php?resource=settings', {
-      method: 'POST',
-      body: JSON.stringify({ key: 'main_content', content: persistentContent })
-    }, true);
+      await apiJson('/data.php?resource=settings', {
+        method: 'POST',
+        body: JSON.stringify({ key: 'main_content', content: persistentContent })
+      }, true);
 
-    return persistentContent;
+      return persistentContent;
+    } catch (error) {
+      showWriteError(error);
+      throw error;
+    }
   },
 
   async getSiteImages(): Promise<SiteImages | null> {
@@ -348,15 +399,20 @@ export const dbService = {
   },
 
   async saveSiteImages(images: SiteImages) {
-    const persistentImages = await replaceBase64ImagesDeep(images) as SiteImages;
-    storage.save('site_images', persistentImages);
+    try {
+      const persistentImages = await replaceBase64ImagesDeep(images) as SiteImages;
+      storage.save('site_images', persistentImages);
 
-    await apiJson('/data.php?resource=settings', {
-      method: 'POST',
-      body: JSON.stringify({ key: 'site_images', content: persistentImages })
-    }, true);
+      await apiJson('/data.php?resource=settings', {
+        method: 'POST',
+        body: JSON.stringify({ key: 'site_images', content: persistentImages })
+      }, true);
 
-    return persistentImages;
+      return persistentImages;
+    } catch (error) {
+      showWriteError(error);
+      throw error;
+    }
   },
 
   async getIngredients(): Promise<any[] | null> {
@@ -372,35 +428,50 @@ export const dbService = {
   },
 
   async updateIngredient(id: string, ingredient: any) {
-    const item = { ...ingredient, id };
-    const current = storage.get('ingredients') || [];
-    const index = current.findIndex((i: any) => i.id === id);
-    storage.save('ingredients', index !== -1
-      ? current.map((i: any) => i.id === id ? item : i)
-      : [...current, item]);
+    try {
+      const item = { ...ingredient, id };
+      const current = storage.get('ingredients') || [];
+      const index = current.findIndex((i: any) => i.id === id);
+      storage.save('ingredients', index !== -1
+        ? current.map((i: any) => i.id === id ? item : i)
+        : [...current, item]);
 
-    await apiJson('/data.php?resource=ingredients', {
-      method: 'POST',
-      body: JSON.stringify({ action: 'upsert', item })
-    }, true);
+      await apiJson('/data.php?resource=ingredients', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'upsert', item })
+      }, true);
+    } catch (error) {
+      showWriteError(error);
+      throw error;
+    }
   },
 
   async deleteIngredient(id: string) {
-    const current = storage.get('ingredients') || [];
-    storage.save('ingredients', current.filter((i: any) => i.id !== id));
+    try {
+      const current = storage.get('ingredients') || [];
+      storage.save('ingredients', current.filter((i: any) => i.id !== id));
 
-    await apiJson('/data.php?resource=ingredients', {
-      method: 'POST',
-      body: JSON.stringify({ action: 'delete', id })
-    }, true);
+      await apiJson('/data.php?resource=ingredients', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'delete', id })
+      }, true);
+    } catch (error) {
+      showWriteError(error);
+      throw error;
+    }
   },
 
   async seedIngredients(items: any[]) {
-    storage.save('ingredients', items);
-    await apiJson('/data.php?resource=ingredients', {
-      method: 'POST',
-      body: JSON.stringify({ action: 'replace_all', items })
-    }, true);
+    try {
+      storage.save('ingredients', items);
+      await apiJson('/data.php?resource=ingredients', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'replace_all', items })
+      }, true);
+    } catch (error) {
+      showWriteError(error);
+      throw error;
+    }
   },
 
   async getRecipes(): Promise<any[] | null> {
@@ -416,34 +487,49 @@ export const dbService = {
   },
 
   async updateRecipe(id: string, recipe: any) {
-    const item = { ...recipe, id };
-    const current = storage.get('recipes') || [];
-    const index = current.findIndex((i: any) => i.id === id);
-    storage.save('recipes', index !== -1
-      ? current.map((i: any) => i.id === id ? item : i)
-      : [...current, item]);
+    try {
+      const item = { ...recipe, id };
+      const current = storage.get('recipes') || [];
+      const index = current.findIndex((i: any) => i.id === id);
+      storage.save('recipes', index !== -1
+        ? current.map((i: any) => i.id === id ? item : i)
+        : [...current, item]);
 
-    await apiJson('/data.php?resource=recipes', {
-      method: 'POST',
-      body: JSON.stringify({ action: 'upsert', item })
-    }, true);
+      await apiJson('/data.php?resource=recipes', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'upsert', item })
+      }, true);
+    } catch (error) {
+      showWriteError(error);
+      throw error;
+    }
   },
 
   async deleteRecipe(id: string) {
-    const current = storage.get('recipes') || [];
-    storage.save('recipes', current.filter((i: any) => i.id !== id));
+    try {
+      const current = storage.get('recipes') || [];
+      storage.save('recipes', current.filter((i: any) => i.id !== id));
 
-    await apiJson('/data.php?resource=recipes', {
-      method: 'POST',
-      body: JSON.stringify({ action: 'delete', id })
-    }, true);
+      await apiJson('/data.php?resource=recipes', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'delete', id })
+      }, true);
+    } catch (error) {
+      showWriteError(error);
+      throw error;
+    }
   },
 
   async seedRecipes(items: any[]) {
-    storage.save('recipes', items);
-    await apiJson('/data.php?resource=recipes', {
-      method: 'POST',
-      body: JSON.stringify({ action: 'replace_all', items })
-    }, true);
+    try {
+      storage.save('recipes', items);
+      await apiJson('/data.php?resource=recipes', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'replace_all', items })
+      }, true);
+    } catch (error) {
+      showWriteError(error);
+      throw error;
+    }
   }
 };
