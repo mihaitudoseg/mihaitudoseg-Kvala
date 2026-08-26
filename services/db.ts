@@ -1,6 +1,6 @@
 import { MenuItem, SiteContent, SiteImages, ReservationData } from '../types';
 
-const API_BASE = 'https://api.wizart.ro';
+export const API_BASE_URL = 'https://api.wizart.ro';
 const STORAGE_PREFIX = 'kvala_v3_stable_';
 const TOKEN_KEY = 'kvala_admin_token';
 
@@ -23,7 +23,7 @@ const storage = {
   }
 };
 
-const getStoredToken = () => {
+const getStoredToken = (): string => {
   try {
     return sessionStorage.getItem(TOKEN_KEY) || '';
   } catch {
@@ -35,7 +35,7 @@ const storeToken = (token: string) => {
   try {
     sessionStorage.setItem(TOKEN_KEY, token);
   } catch {
-    // Ignore storage failures; the current request can still continue.
+    // The request that created the token can still complete.
   }
 };
 
@@ -43,56 +43,38 @@ const clearToken = () => {
   try {
     sessionStorage.removeItem(TOKEN_KEY);
   } catch {
-    // Ignore.
+    // Ignore storage failures.
   }
 };
 
 const loginAdmin = async (password: string): Promise<boolean> => {
   try {
-    const response = await fetch(`${API_BASE}/auth.php`, {
+    const response = await fetch(`${API_BASE_URL}/auth.php`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password })
     });
 
-    const data = await response.json();
-    if (!response.ok || data?.status !== 'ok' || !data?.token) return false;
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data?.status !== 'ok' || !data?.token) {
+      clearToken();
+      return false;
+    }
 
     storeToken(data.token);
     return true;
   } catch (error) {
     console.error('Admin login failed:', error);
+    clearToken();
     return false;
   }
 };
 
-const requestServerPassword = async (): Promise<boolean> => {
-  if (typeof window === 'undefined') return false;
-  const entered = window.prompt('Introduceți parola de administrator pentru salvarea pe server:');
-  if (!entered) return false;
-  return loginAdmin(entered);
-};
-
-const ensureAdminToken = async (): Promise<string> => {
-  const existing = getStoredToken();
-  if (existing) return existing;
-
-  // Transitional compatibility: try the old Netlify admin password once.
-  const configuredPassword = (import.meta as any).env?.VITE_ADMIN_PASSWORD || '';
-  if (configuredPassword) {
-    const ok = await loginAdmin(configuredPassword);
-    if (ok) {
-      const token = getStoredToken();
-      if (token) return token;
-    }
-  }
-
-  // If the frontend password differs from the new server password, ask once.
-  const promptedOk = await requestServerPassword();
-  if (!promptedOk) throw new Error('Autentificarea pe server a eșuat');
-
+const requireAdminToken = (): string => {
   const token = getStoredToken();
-  if (!token) throw new Error('Tokenul de administrator nu a fost salvat');
+  if (!token) {
+    throw new Error('Sesiune admin lipsă. Autentificați-vă din nou.');
+  }
   return token;
 };
 
@@ -102,27 +84,23 @@ const apiJson = async (
   requireAuth = false
 ): Promise<any> => {
   const headers = new Headers(options.headers || {});
+
   if (!headers.has('Content-Type') && options.body && !(options.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json');
   }
 
   if (requireAuth) {
-    const token = await ensureAdminToken();
-    headers.set('Authorization', `Bearer ${token}`);
+    headers.set('Authorization', `Bearer ${requireAdminToken()}`);
   }
 
-  let response = await fetch(`${API_BASE}${path}`, { ...options, headers });
-
-  if (requireAuth && response.status === 401) {
-    clearToken();
-    const promptedOk = await requestServerPassword();
-    if (!promptedOk) throw new Error('Sesiunea de administrator a expirat');
-    const token = getStoredToken();
-    headers.set('Authorization', `Bearer ${token}`);
-    response = await fetch(`${API_BASE}${path}`, { ...options, headers });
-  }
-
+  const response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
   const data = await response.json().catch(() => ({}));
+
+  if (response.status === 401 && requireAuth) {
+    clearToken();
+    throw new Error('Sesiunea de administrator a expirat. Autentificați-vă din nou.');
+  }
+
   if (!response.ok || data?.status === 'error') {
     throw new Error(data?.message || `API request failed (${response.status})`);
   }
@@ -130,47 +108,36 @@ const apiJson = async (
   return data;
 };
 
-const showWriteError = (error: unknown) => {
-  console.error(error);
-  if (typeof window !== 'undefined') {
-    const message = error instanceof Error ? error.message : String(error);
-    window.alert(`Salvarea pe server a eșuat: ${message}`);
+const uploadBlob = async (blob: Blob, filename = 'kvala.jpg'): Promise<string> => {
+  const form = new FormData();
+  form.append('image', blob, filename);
+
+  const response = await fetch(`${API_BASE_URL}/upload.php`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${requireAdminToken()}` },
+    body: form
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (response.status === 401) {
+    clearToken();
+    throw new Error('Sesiunea de administrator a expirat. Autentificați-vă din nou.');
   }
+
+  if (!response.ok || data?.status !== 'ok' || !data?.url) {
+    throw new Error(data?.message || 'Image upload failed');
+  }
+
+  return data.url;
 };
 
 const uploadDataUrl = async (dataUrl: string): Promise<string> => {
   if (!dataUrl.startsWith('data:image/')) return dataUrl;
 
   const blob = await fetch(dataUrl).then(r => r.blob());
-  const form = new FormData();
   const extension = blob.type === 'image/png' ? 'png' : blob.type === 'image/webp' ? 'webp' : 'jpg';
-  form.append('image', blob, `kvala.${extension}`);
-
-  const token = await ensureAdminToken();
-  let response = await fetch(`${API_BASE}/upload.php`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
-    body: form
-  });
-
-  if (response.status === 401) {
-    clearToken();
-    const promptedOk = await requestServerPassword();
-    if (!promptedOk) throw new Error('Sesiunea de administrator a expirat');
-    const refreshed = getStoredToken();
-    response = await fetch(`${API_BASE}/upload.php`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${refreshed}` },
-      body: form
-    });
-  }
-
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok || data?.status !== 'ok' || !data?.url) {
-    throw new Error(data?.message || 'Image upload failed');
-  }
-
-  return data.url;
+  return uploadBlob(blob, `kvala.${extension}`);
 };
 
 const replaceBase64ImagesDeep = async (value: any): Promise<any> => {
@@ -195,6 +162,14 @@ const replaceBase64ImagesDeep = async (value: any): Promise<any> => {
   return value;
 };
 
+const showWriteError = (error: unknown) => {
+  console.error(error);
+  if (typeof window !== 'undefined') {
+    const message = error instanceof Error ? error.message : String(error);
+    window.alert(`Salvarea pe server a eșuat: ${message}`);
+  }
+};
+
 export const isDbConfigured = true;
 
 export const dbDebugInfo = {
@@ -204,13 +179,33 @@ export const dbDebugInfo = {
   source: 'Self-hosted API (api.wizart.ro)'
 };
 
+// Compatibility export for any old imports that may still exist.
 export const supabase = null;
 
 export const dbService = {
+  async login(password: string): Promise<{ success: boolean; error?: string }> {
+    const success = await loginAdmin(password);
+    return success
+      ? { success: true }
+      : { success: false, error: 'Parolă incorectă sau autentificarea pe server a eșuat.' };
+  },
+
   loginAdmin,
+
+  getAuthToken(): string {
+    return getStoredToken();
+  },
+
+  logout() {
+    clearToken();
+  },
 
   logoutAdmin() {
     clearToken();
+  },
+
+  async uploadImage(file: Blob & { name?: string }): Promise<string> {
+    return uploadBlob(file, file.name || 'kvala.jpg');
   },
 
   async checkConnection() {
@@ -246,7 +241,7 @@ export const dbService = {
       const index = currentItems.findIndex((i: any) => i.id === id);
       const updatedItems = index !== -1
         ? currentItems.map((item: any) => item.id === id ? persistentItem : item)
-        : [...currentItems, persistentItem];
+        : [persistentItem, ...currentItems];
       storage.save('menu_items', updatedItems);
 
       await apiJson('/menu.php', {
