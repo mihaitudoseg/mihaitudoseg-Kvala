@@ -35,7 +35,7 @@ const storeToken = (token: string) => {
   try {
     sessionStorage.setItem(TOKEN_KEY, token);
   } catch {
-    // The request that created the token can still complete.
+    // The current request can still complete.
   }
 };
 
@@ -72,9 +72,7 @@ const loginAdmin = async (password: string): Promise<boolean> => {
 
 const requireAdminToken = (): string => {
   const token = getStoredToken();
-  if (!token) {
-    throw new Error('Sesiune admin lipsă. Autentificați-vă din nou.');
-  }
+  if (!token) throw new Error('Sesiune admin lipsă. Autentificați-vă din nou.');
   return token;
 };
 
@@ -134,7 +132,6 @@ const uploadBlob = async (blob: Blob, filename = 'kvala.jpg'): Promise<string> =
 
 const uploadDataUrl = async (dataUrl: string): Promise<string> => {
   if (!dataUrl.startsWith('data:image/')) return dataUrl;
-
   const blob = await fetch(dataUrl).then(r => r.blob());
   const extension = blob.type === 'image/png' ? 'png' : blob.type === 'image/webp' ? 'webp' : 'jpg';
   return uploadBlob(blob, `kvala.${extension}`);
@@ -179,7 +176,6 @@ export const dbDebugInfo = {
   source: 'Self-hosted API (api.wizart.ro)'
 };
 
-// Compatibility export for any old imports that may still exist.
 export const supabase = null;
 
 export const dbService = {
@@ -217,6 +213,25 @@ export const dbService = {
     }
   },
 
+  async testApiConnection(): Promise<{ status: 'ok' | 'error'; latencyMs?: number; menuCount?: number; message: string }> {
+    const started = Date.now();
+    try {
+      const data = await apiJson('/menu.php');
+      return {
+        status: 'ok',
+        latencyMs: Date.now() - started,
+        menuCount: Array.isArray(data?.items) ? data.items.length : (typeof data?.count === 'number' ? data.count : undefined),
+        message: 'Conexiunea la api.wizart.ro funcționează corect.'
+      };
+    } catch (error) {
+      return {
+        status: 'error',
+        latencyMs: Date.now() - started,
+        message: error instanceof Error ? error.message : 'Conexiunea la API a eșuat.'
+      };
+    }
+  },
+
   async getMenuItems(): Promise<MenuItem[] | null> {
     try {
       const data = await apiJson('/menu.php');
@@ -237,11 +252,27 @@ export const dbService = {
         image: fullItem.image ? await uploadDataUrl(fullItem.image) : fullItem.image
       };
 
-      const currentItems = storage.get('menu_items') || [];
+      const currentItems: MenuItem[] = storage.get('menu_items') || [];
       const index = currentItems.findIndex((i: any) => i.id === id);
-      const updatedItems = index !== -1
-        ? currentItems.map((item: any) => item.id === id ? persistentItem : item)
-        : [persistentItem, ...currentItems];
+
+      if (index === -1) {
+        // A genuinely new product is persisted first, and every existing order
+        // is shifted so the position survives a full refresh.
+        const reordered: MenuItem[] = [
+          { ...persistentItem, order: 0 } as MenuItem,
+          ...currentItems.map((item, idx) => ({ ...item, order: idx + 1 }))
+        ];
+
+        await apiJson('/menu.php', {
+          method: 'POST',
+          body: JSON.stringify({ action: 'bulk_upsert', items: reordered })
+        }, true);
+
+        storage.save('menu_items', reordered);
+        return persistentItem;
+      }
+
+      const updatedItems = currentItems.map((item: any) => item.id === id ? persistentItem : item);
       storage.save('menu_items', updatedItems);
 
       await apiJson('/menu.php', {
