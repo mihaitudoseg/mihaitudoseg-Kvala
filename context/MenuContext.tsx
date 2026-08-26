@@ -147,7 +147,7 @@ const INITIAL_MENU_ITEMS: MenuItem[] = [
 
 const INITIAL_SITE_IMAGES: SiteImages = {
   hero: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?q=80&w=2070',
-  story: 'https://images.unsplash.com/photo-1559339352-11d035aa65de?q=80&w=1974',
+  story: '/kvala_patio_story.jpg',
   menuHeader: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?q=80&w=1974',
   logo: '',
   tablematImage: 'https://images.unsplash.com/photo-1599487488170-d11ec9c172f0?auto=format&fit=crop&w=800&q=80',
@@ -165,10 +165,11 @@ const INITIAL_SITE_CONTENT: SiteContent = {
     publicUrl: 'https://kvala.ro'
   },
   home: { 
-    heroTitle: 'Gustul autentic al Mării Egee', 
+    heroTitle: 'Restaurant cu suflet grecesc', 
     heroSubtitle: 'Cotroceni • București', 
     storyTitle: 'Povestea Kvala', 
-    storyText: 'Situat pe strada Louis Pasteur 63, într-o casă interbelică renovată cu grijă, Kvala aduce spiritul tavernelor rafinate din Santorini în inima Bucureștiului.' 
+    storyText: 'Situat pe strada Louis Pasteur 63, într-o casă interbelică renovată cu grijă, Kvala aduce spiritul tavernelor rafinate din Santorini în inima Bucureștiului.',
+    weekendNotice: 'Vă rugăm să luați în considerare că în timpul weekendului, nu sunt disponibile următoarele produse: Tigaie Grecească de pui, Tigaie Grecească de porc, Gyros de pui, Gyros de porc.'
   },
   menuPage: {
     title: 'Meniul Kvala',
@@ -307,10 +308,11 @@ const siteContentEnTranslations = {
     footerTagline: 'Greek soul in the heart of Bucharest.',
   },
   home: {
-    heroTitle: 'The authentic taste of the Aegean Sea',
+    heroTitle: 'Restaurant with a Greek Soul',
     heroSubtitle: 'Cotroceni • Bucharest',
     storyTitle: 'The Kvala Story',
-    storyText: 'Located on 63 Louis Pasteur Street, in a carefully renovated interwar house, Kvala brings the spirit of refined Santorini taverns to the heart of Bucharest.'
+    storyText: 'Located on 63 Louis Pasteur Street, in a carefully renovated interwar house, Kvala brings the spirit of refined Santorini taverns to the heart of Bucharest.',
+    weekendNotice: 'Please note that during weekends, the following dishes are not available: Chicken Greek Pan, Pork Greek Pan, Chicken Gyros Platter, Pork Gyros Platter.'
   },
   menuPage: {
     title: 'Kvala Menu',
@@ -359,7 +361,13 @@ const staticTranslations: Record<string, Record<string, string>> = {
     'Rezervă o Masă': 'Book a Table',
     'Meniul Nostru': 'Our Menu',
     'O experiență culinară autentică.': 'An authentic culinary experience.',
-    'Se încarcă gustul Greciei...': 'Loading the taste of Greece...'
+    'Se încarcă gustul Greciei...': 'Loading the taste of Greece...',
+    'Notă Weekend': 'Weekend Notice',
+    'Indisponibil în weekend': 'Unavailable on weekends',
+    'Indisponibil astăzi (Weekend)': 'Unavailable today (Weekend)',
+    'Disponibil Luni - Vineri': 'Available Monday - Friday',
+    'Info Disponibilitate Weekend': 'Weekend Availability Notice',
+    'Restaurant cu suflet grecesc': 'Restaurant with a Greek soul'
   }
 };
 
@@ -449,6 +457,11 @@ const storage = {
       if (!data) return null;
       return JSON.parse(data);
     } catch (e) { return null; }
+  },
+  set: (key: string, value: any) => {
+    try {
+      localStorage.setItem(`${STORAGE_PREFIX}${key}`, JSON.stringify(value));
+    } catch (e) {}
   }
 };
 
@@ -461,14 +474,29 @@ export const MenuProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   
   const [siteImages, setSiteImages] = useState<SiteImages>(() => {
     const cached = storage.get('site_images');
-    if (cached && typeof cached === 'object' && Object.keys(cached).length > 0) return cached;
+    if (cached && typeof cached === 'object' && Object.keys(cached).length > 0) {
+      const merged = { ...INITIAL_SITE_IMAGES, ...cached };
+      // Replace old default/unsplash story photo with the new uploaded terrace photo
+      if (!merged.story || merged.story.includes('unsplash.com') || merged.story.includes('photo-1559339352')) {
+        merged.story = '/kvala_patio_story.jpg';
+        storage.set('site_images', merged);
+      }
+      return merged;
+    }
     return INITIAL_SITE_IMAGES;
   });
   
   const [siteContent, setSiteContent] = useState<SiteContent>(() => {
     const cached = storage.get('site_content');
     if (cached && typeof cached === 'object' && cached.categories && cached.categories.length > 0) {
-      return { ...INITIAL_SITE_CONTENT, ...cached };
+      const merged = { ...INITIAL_SITE_CONTENT, ...cached };
+      if (merged.home && (merged.home.heroTitle === 'Restaurant cu suflet grecesc' || !merged.home.heroTitle)) {
+        merged.home.heroTitle = 'Restaurant cu suflet grecesc';
+      }
+      if (!merged.home.weekendNotice) {
+        merged.home.weekendNotice = INITIAL_SITE_CONTENT.home.weekendNotice;
+      }
+      return merged;
     }
     return INITIAL_SITE_CONTENT;
   });
@@ -526,6 +554,7 @@ export const MenuProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         heroSubtitle: siteContentEnTranslations.home.heroSubtitle,
         storyTitle: siteContentEnTranslations.home.storyTitle,
         storyText: siteContentEnTranslations.home.storyText,
+        weekendNotice: siteContentEnTranslations.home.weekendNotice,
       },
       menuPage: {
         ...siteContent.menuPage,
@@ -637,7 +666,16 @@ export const MenuProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // Imagini site
     dbService.getSiteImages().then(images => {
       if (images && typeof images === 'object' && Object.keys(images).length > 0) {
-        setSiteImages(prev => ({ ...prev, ...images }));
+        const cleanImages = { ...images };
+        let hasStoryUpdate = false;
+        if (!cleanImages.story || cleanImages.story.includes('unsplash.com') || cleanImages.story.includes('photo-1559339352')) {
+          cleanImages.story = '/kvala_patio_story.jpg';
+          hasStoryUpdate = true;
+        }
+        setSiteImages(prev => ({ ...prev, ...cleanImages }));
+        if (hasStoryUpdate) {
+          dbService.saveSiteImages(cleanImages);
+        }
       }
     }).catch(e => console.error("Site images load error:", e))
       .finally(() => {

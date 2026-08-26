@@ -4,6 +4,7 @@ import { Clock, MessageCircle, Loader2, ShieldCheck } from 'lucide-react';
 import { ReservationData } from '../types';
 import { useMenu } from '../context/MenuContext';
 import { dbService } from '../services/db';
+import { WeekendBanner } from '../components/WeekendBanner';
 
 export const ReservationsPage: React.FC = () => {
   const { siteContent, t } = useMenu();
@@ -61,12 +62,16 @@ export const ReservationsPage: React.FC = () => {
   }
 
   return (
-    <div className="bg-sand min-h-screen py-12 px-4">
-      <div className="max-w-4xl mx-auto">
-        <div className="text-center mb-12">
-          <h1 className="text-4xl font-serif font-bold text-gray-900 mb-2">{siteContent.reservationsPage.title}</h1>
-          <p className="text-gray-600">{siteContent.reservationsPage.subtitle}</p>
-        </div>
+    <div className="bg-sand min-h-screen">
+      {/* Weekend Availability Banner */}
+      <WeekendBanner />
+
+      <div className="py-12 px-4">
+        <div className="max-w-4xl mx-auto">
+          <div className="text-center mb-12">
+            <h1 className="text-4xl font-serif font-bold text-gray-900 mb-2">{siteContent.reservationsPage.title}</h1>
+            <p className="text-gray-600">{siteContent.reservationsPage.subtitle}</p>
+          </div>
 
         <div className="bg-white rounded-2xl shadow-xl overflow-hidden flex flex-col md:flex-row border border-gray-100">
           <div className="bg-greek-blue p-8 md:w-1/3 text-white flex flex-col justify-between">
@@ -130,5 +135,6 @@ export const ReservationsPage: React.FC = () => {
         </div>
       </div>
     </div>
-  );
+  </div>
+);
 };

@@ -75,6 +75,7 @@ export interface SiteContent {
     heroSubtitle: string;
     storyTitle: string;
     storyText: string;
+    weekendNotice?: string;
   };
   menuPage: {
     title: string;

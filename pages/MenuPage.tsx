@@ -2,6 +2,9 @@
 import React, { useState, useEffect } from 'react';
 import { useMenu } from '../context/MenuContext';
 import { motion } from 'motion/react';
+import { AlertCircle, Clock, Calendar } from 'lucide-react';
+import { isWeekend, isWeekendRestrictedItem } from '../services/menuRules';
+import { WeekendBanner } from '../components/WeekendBanner';
 
 interface MenuPageProps {
 }
@@ -9,6 +12,7 @@ interface MenuPageProps {
 export const MenuPage: React.FC<MenuPageProps> = () => {
   const { menuItems, siteImages, siteContent, activeVariant, t } = useMenu();
   const [activeCategory, setActiveCategory] = useState<string>('');
+  const todayIsWeekend = isWeekend();
 
   const visibleCategories = (siteContent.categories || []).filter(cat => {
     if (cat.isHidden) return false;
@@ -77,6 +81,9 @@ export const MenuPage: React.FC<MenuPageProps> = () => {
 
   return (
     <div className={`min-h-screen transition-colors duration-500 ${m.pageBg}`}>
+      {/* Weekend Availability Banner */}
+      <WeekendBanner />
+
       <div className="h-[40vh] relative bg-gray-900 overflow-hidden">
         <img 
           src={siteImages?.menuHeader} 
@@ -124,20 +131,53 @@ export const MenuPage: React.FC<MenuPageProps> = () => {
           </div>
         )}
 
+        {/* Weekend Notice banner when in weekend or viewing categories with restricted items */}
+        {activeCategory === 'tigaie-greceasca' && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className={`mb-6 p-4 rounded-2xl border flex items-start sm:items-center gap-3 text-xs sm:text-sm ${
+              todayIsWeekend
+                ? 'bg-red-50/90 border-red-200 text-red-900 shadow-sm'
+                : activeVariant === 'byzantine'
+                ? 'bg-[#121624] border-greek-gold/30 text-[#EADBB7]'
+                : activeVariant === 'rustic'
+                ? 'bg-[#F7F2E7] border-amber-900/20 text-amber-950'
+                : 'bg-amber-50/90 border-amber-200 text-amber-950'
+            }`}
+          >
+            <AlertCircle className={`w-5 h-5 shrink-0 ${todayIsWeekend ? 'text-red-600' : 'text-greek-gold'}`} />
+            <div>
+              <span className="font-bold">
+                {todayIsWeekend ? '⚠️ ' + t('Indisponibil în weekend') + ': ' : 'ℹ️ ' + t('Notă Weekend') + ': '}
+              </span>
+              <span>
+                {siteContent.home?.weekendNotice || "În weekend (Sâmbătă și Duminică), următoarele produse nu sunt disponibile: Tigaie Grecească de pui, Tigaie Grecească de porc, Gyros de pui, Gyros de porc."}
+              </span>
+            </div>
+          </motion.div>
+        )}
+
         <div className={`transition-all duration-500 ${m.contentBg}`}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-6 md:gap-y-16">
-            {filteredItems.length > 0 ? filteredItems.map((item) => (
+            {filteredItems.length > 0 ? filteredItems.map((item) => {
+              const isRestricted = isWeekendRestrictedItem(item);
+              const isUnavailableToday = todayIsWeekend && isRestricted;
+
+              return (
               <motion.div 
                 key={item.id} 
                 initial={{ opacity: 0, y: 30 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true, margin: "-100px" }}
                 transition={{ duration: 0.6, ease: "easeOut" }}
-                className="relative group flex flex-col items-center text-center pb-2 border-b border-gray-100/10 md:border-b-0 last:border-0 last:pb-0 md:pb-0"
+                className={`relative group flex flex-col items-center text-center pb-2 border-b border-gray-100/10 md:border-b-0 last:border-0 last:pb-0 md:pb-0 ${
+                  isUnavailableToday ? 'opacity-75' : ''
+                }`}
               >
                 <div className="w-full max-w-xl">
                   {item.image && (
-                    <div className={m.imgContainer}>
+                    <div className={`${m.imgContainer} ${isUnavailableToday ? 'grayscale-[0.35]' : ''}`}>
                       <img 
                         src={item.image} 
                         alt={item.name} 
@@ -147,6 +187,20 @@ export const MenuPage: React.FC<MenuPageProps> = () => {
                         onLoad={(e) => (e.currentTarget.parentElement?.classList.remove('bg-gray-100', 'bg-amber-50', 'bg-[#090B12]'))}
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+
+                      {/* Weekend restriction badge overlay on image */}
+                      {isUnavailableToday && (
+                        <div className="absolute top-3 left-3 bg-red-600/95 text-white px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest shadow-lg flex items-center gap-1.5 backdrop-blur-xs">
+                          <Clock className="w-3 h-3" />
+                          <span>{t('Indisponibil astăzi (Weekend)')}</span>
+                        </div>
+                      )}
+                      {!todayIsWeekend && isRestricted && (
+                        <div className="absolute top-3 left-3 bg-gray-900/85 text-white px-2.5 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider backdrop-blur-xs flex items-center gap-1">
+                          <Calendar className="w-2.5 h-2.5 text-greek-gold" />
+                          <span>{t('Disponibil Luni - Vineri')}</span>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -154,8 +208,15 @@ export const MenuPage: React.FC<MenuPageProps> = () => {
                     <h3 className={m.itemTitle}>
                       {item.name}
                     </h3>
-                    <div className="flex items-center gap-3 mb-2">
-                      <span className={m.priceText}>{item.price} Lei</span>
+                    <div className="flex items-center gap-3 mb-2 flex-wrap justify-center">
+                      <span className={`${m.priceText} ${isUnavailableToday ? 'line-through text-gray-400' : ''}`}>
+                        {item.price} Lei
+                      </span>
+                      {isUnavailableToday && (
+                        <span className="text-[10px] font-bold text-red-500 uppercase tracking-wider bg-red-50 px-2 py-0.5 rounded border border-red-100">
+                          {t('Indisponibil în weekend')}
+                        </span>
+                      )}
                       {(item.weight || item.calories) && (
                         <>
                           <div className={`w-1 md:w-1.5 h-1 md:h-1.5 rounded-full ${activeVariant === 'byzantine' ? 'bg-greek-gold/40' : activeVariant === 'rustic' ? 'bg-[#485830]/40' : 'bg-greek-gold/40'}`}></div>
@@ -180,7 +241,7 @@ export const MenuPage: React.FC<MenuPageProps> = () => {
                       </p>
                     )}
                     
-                    <div className="flex justify-center gap-3">
+                    <div className="flex justify-center gap-3 flex-wrap">
                        {item.isVegetarian && (
                          activeVariant === 'rustic' ? (
                            <span className="text-[9px] font-black uppercase tracking-[0.12em] bg-emerald-50 text-[#485830] px-3 py-1 rounded-md border border-[#485830]/10 shadow-sm">
@@ -220,7 +281,7 @@ export const MenuPage: React.FC<MenuPageProps> = () => {
                   )
                 )}
               </motion.div>
-            )) : (
+            );}) : (
               <div className="col-span-2 text-center py-24">
                 <p className="text-gray-400 font-bold uppercase tracking-[0.3em] text-sm">{t('Niciun preparat în această categorie')}</p>
               </div>
