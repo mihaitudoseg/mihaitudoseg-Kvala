@@ -395,7 +395,6 @@ interface MenuContextType {
 const MenuContext = createContext<MenuContextType | undefined>(undefined);
 
 const STORAGE_PREFIX = 'kvala_v3_stable_';
-const IMAGES_CLEARED_FLAG = 'kvala_menu_images_cleared_v1';
 
 const storage = {
   get: (key: string) => {
@@ -415,13 +414,7 @@ const storage = {
 export const MenuProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [menuItems, setMenuItems] = useState<MenuItem[]>(() => {
     const cached = storage.get('menu_items');
-    if (cached && Array.isArray(cached) && cached.length > 0) {
-      // If initial cleanup hasn't run yet, clear images from cache
-      if (!localStorage.getItem(IMAGES_CLEARED_FLAG)) {
-        return cached.map((i: MenuItem) => ({ ...i, image: '' }));
-      }
-      return cached;
-    }
+    if (cached && Array.isArray(cached) && cached.length > 0) return cached;
     return INITIAL_MENU_ITEMS;
   });
   
@@ -429,7 +422,6 @@ export const MenuProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const cached = storage.get('site_images');
     if (cached && typeof cached === 'object' && Object.keys(cached).length > 0) {
       const merged = { ...INITIAL_SITE_IMAGES, ...cached };
-      // Replace old default/unsplash story photo with the new uploaded terrace photo
       if (!merged.story || merged.story.includes('unsplash.com') || merged.story.includes('photo-1559339352')) {
         merged.story = '/kvala_patio_story.jpg';
         storage.set('site_images', merged);
@@ -570,30 +562,15 @@ export const MenuProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setIsLoading(false);
     const safetyTimeout = setTimeout(() => setIsLoading(false), 3000);
 
-    // Încărcăm datele proaspete din backend
+    // Încărcăm datele exclusiv în mod citire (read-only) fără scrieri automate
     dbService.getMenuItems().then(items => {
       if (items && Array.isArray(items) && items.length > 0) {
         const sortedItems = [...items].sort((a, b) => (a.order || 0) - (b.order || 0));
-        
-        // One-time menu image purge migration to clear all legacy stock/unsplash images
-        const hasRunCleanup = localStorage.getItem(IMAGES_CLEARED_FLAG);
-        if (!hasRunCleanup) {
-          const cleanedItems = sortedItems.map(i => ({ ...i, image: '' }));
-          setMenuItems(cleanedItems);
-          storage.set('menu_items', cleanedItems);
-          localStorage.setItem(IMAGES_CLEARED_FLAG, 'true');
-          if (isDbConfigured) {
-            dbService.seedMenuItems(cleanedItems).catch(err => console.warn("Menu images cleanup sync error:", err));
-          }
-        } else {
-          setMenuItems(sortedItems);
-        }
+        setMenuItems(sortedItems);
+        storage.set('menu_items', sortedItems);
       } else {
-        console.log("DB goală, inițializăm cu meniul implicit");
+        console.log("DB goală sau indisponibilă, utilizăm meniul inițial");
         setMenuItems(INITIAL_MENU_ITEMS);
-        if (isDbConfigured) {
-          dbService.seedMenuItems(INITIAL_MENU_ITEMS);
-        }
       }
     }).catch(e => {
       console.error("Menu items load error:", e);
@@ -616,15 +593,10 @@ export const MenuProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     dbService.getSiteImages().then(images => {
       if (images && typeof images === 'object' && Object.keys(images).length > 0) {
         const cleanImages = { ...images };
-        let hasStoryUpdate = false;
         if (!cleanImages.story || cleanImages.story.includes('unsplash.com') || cleanImages.story.includes('photo-1559339352')) {
           cleanImages.story = '/kvala_patio_story.jpg';
-          hasStoryUpdate = true;
         }
         setSiteImages(prev => ({ ...prev, ...cleanImages }));
-        if (hasStoryUpdate) {
-          dbService.saveSiteImages(cleanImages);
-        }
       }
     }).catch(e => console.error("Site images load error:", e))
       .finally(() => {
