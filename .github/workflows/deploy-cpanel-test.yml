@@ -1,7 +1,14 @@
-name: Deploy Kvala to cPanel test
+name: Deploy Kvala to cPanel
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
+
+concurrency:
+  group: kvala-cpanel-deploy
+  cancel-in-progress: true
 
 jobs:
   deploy:
