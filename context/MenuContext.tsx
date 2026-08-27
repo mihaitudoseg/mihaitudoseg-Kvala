@@ -27,7 +27,7 @@ const INITIAL_PROMO_ITEMS: PromoItem[] = [
   }
 ];
 
-import { MenuItem, SiteContent, SiteImages, Category, PromoItem, DesignVariant } from '../types';
+import { MenuItem, SiteContent, SiteImages, Category, PromoItem, DesignVariant, GalleryImage } from '../types';
 import { dbService, isDbConfigured } from '../services/db';
 
 const INITIAL_CATEGORIES: Category[] = [
@@ -183,9 +183,14 @@ const INITIAL_SITE_CONTENT: SiteContent = {
     helpText: 'Sună-ne la'
   },
   contactPage: { title: 'Contactează-ne', infoTitle: 'Informații' },
+  galleryPage: {
+    title: 'Galerie Kvala',
+    subtitle: 'Momente autentice, preparate proaspete și atmosfera caldă a tavernei noastre din Cotroceni.'
+  },
   popup: { isActive: true, title: 'Eveniment Special', message: 'Te invităm la o seară de muzică grecească live!' },
   categories: INITIAL_CATEGORIES,
-  promoItems: INITIAL_PROMO_ITEMS
+  promoItems: INITIAL_PROMO_ITEMS,
+  galleryImages: []
 };
 
 // English translations for the categories
@@ -367,7 +372,16 @@ const staticTranslations: Record<string, Record<string, string>> = {
     'Indisponibil astăzi (Weekend)': 'Unavailable today (Weekend)',
     'Disponibil Luni - Vineri': 'Available Monday - Friday',
     'Info Disponibilitate Weekend': 'Weekend Availability Notice',
-    'Restaurant cu suflet grecesc': 'Restaurant with a Greek soul'
+    'Restaurant cu suflet grecesc': 'Restaurant with a Greek soul',
+    'Galerie': 'Gallery',
+    'Galerie Kvala': 'Kvala Gallery',
+    'Galerie Foto': 'Photo Gallery',
+    'Momente autentice, preparate proaspete și atmosfera caldă a tavernei noastre din Cotroceni.': 'Authentic moments, fresh dishes, and the warm atmosphere of our Cotroceni tavern.',
+    'Nicio imagine în galerie': 'No images in gallery',
+    'Momentan galeria foto se actualizează. Vă așteptăm cu drag în Cotroceni!': 'The photo gallery is currently being updated. We warmly welcome you to Cotroceni!',
+    'Închide': 'Close',
+    'Imaginea precedentă': 'Previous image',
+    'Imaginea următoare': 'Next image'
   }
 };
 
@@ -375,6 +389,7 @@ interface MenuContextType {
   menuItems: MenuItem[];
   siteImages: SiteImages;
   siteContent: SiteContent;
+  galleryImages: GalleryImage[];
   isLoading: boolean;
   isDbActive: boolean;
   activeVariant: DesignVariant;
@@ -390,6 +405,10 @@ interface MenuContextType {
   restoreDefaults: () => Promise<void>;
   updateSiteImage: (key: keyof SiteImages, url: string) => Promise<void>;
   updateSiteContent: (section: keyof SiteContent, key: string, value: any) => Promise<void>;
+  addGalleryImages: (newImages: { url: string; caption?: string }[]) => Promise<void>;
+  updateGalleryImage: (id: string, updates: Partial<GalleryImage>) => Promise<void>;
+  deleteGalleryImage: (id: string) => Promise<void>;
+  reorderGalleryImages: (images: GalleryImage[]) => Promise<void>;
 }
 
 const MenuContext = createContext<MenuContextType | undefined>(undefined);
@@ -700,19 +719,72 @@ export const MenuProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setSiteContent(prev => {
       const newContent = { 
         ...prev, 
-        [section]: (section === 'categories' || section === 'promoItems') ? value : { ...prev[section as keyof SiteContent], [key]: value } 
+        [section]: (section === 'categories' || section === 'promoItems' || section === 'galleryImages') ? value : { ...prev[section as keyof SiteContent], [key]: value } 
       };
       dbService.saveSiteContent(newContent as SiteContent);
       return newContent as SiteContent;
     });
   };
 
+  const addGalleryImages = async (newImages: { url: string; caption?: string }[]) => {
+    setSiteContent(prev => {
+      const currentGallery = Array.isArray(prev.galleryImages) ? prev.galleryImages : [];
+      const newItems: GalleryImage[] = newImages.map((img, idx) => ({
+        id: `gal_${Date.now()}_${idx}_${Math.random().toString(36).substr(2, 6)}`,
+        url: img.url,
+        caption: img.caption || '',
+        order: currentGallery.length + idx
+      }));
+      const updatedGallery = [...currentGallery, ...newItems];
+      const newContent = { ...prev, galleryImages: updatedGallery };
+      dbService.saveSiteContent(newContent);
+      return newContent;
+    });
+  };
+
+  const updateGalleryImage = async (id: string, updates: Partial<GalleryImage>) => {
+    setSiteContent(prev => {
+      const currentGallery = Array.isArray(prev.galleryImages) ? prev.galleryImages : [];
+      const updatedGallery = currentGallery.map(img => img.id === id ? { ...img, ...updates } : img);
+      const newContent = { ...prev, galleryImages: updatedGallery };
+      dbService.saveSiteContent(newContent);
+      return newContent;
+    });
+  };
+
+  const deleteGalleryImage = async (id: string) => {
+    setSiteContent(prev => {
+      const currentGallery = Array.isArray(prev.galleryImages) ? prev.galleryImages : [];
+      const updatedGallery = currentGallery
+        .filter(img => img.id !== id)
+        .map((img, idx) => ({ ...img, order: idx }));
+      const newContent = { ...prev, galleryImages: updatedGallery };
+      dbService.saveSiteContent(newContent);
+      return newContent;
+    });
+  };
+
+  const reorderGalleryImages = async (images: GalleryImage[]) => {
+    const indexed = images.map((img, idx) => ({ ...img, order: idx }));
+    setSiteContent(prev => {
+      const newContent = { ...prev, galleryImages: indexed };
+      dbService.saveSiteContent(newContent);
+      return newContent;
+    });
+  };
+
+  const galleryImages = useMemo(() => {
+    const list = Array.isArray(siteContent.galleryImages) ? siteContent.galleryImages : [];
+    return [...list].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  }, [siteContent.galleryImages]);
+
   return (
     <MenuContext.Provider value={{ 
-      menuItems: translatedMenuItems, siteImages, siteContent: translatedSiteContent, isLoading, isDbActive: isDbConfigured,
+      menuItems: translatedMenuItems, siteImages, siteContent: translatedSiteContent, galleryImages, isLoading, isDbActive: isDbConfigured,
       activeVariant, setActiveVariant,
       language, setLanguage, t,
-      updateMenuItem, deleteMenuItem, deleteHiddenMenuItems, addMenuItem, reorderMenuItems, restoreDefaults, updateSiteImage, updateSiteContent 
+      updateMenuItem, deleteMenuItem, deleteHiddenMenuItems, addMenuItem, reorderMenuItems, restoreDefaults, updateSiteImage, updateSiteContent,
+      addGalleryImages, updateGalleryImage, deleteGalleryImage, reorderGalleryImages
     }}>
       {children}
     </MenuContext.Provider>

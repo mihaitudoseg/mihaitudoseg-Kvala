@@ -2,10 +2,18 @@
 export enum Page {
   HOME = 'home',
   MENU = 'menu',
+  GALLERY = 'gallery',
   RESERVATIONS = 'reservations',
   CONTACT = 'contact',
   ADMIN = 'admin',
   INVENTORY = 'inventory'
+}
+
+export interface GalleryImage {
+  id: string;
+  url: string;
+  caption?: string;
+  order?: number;
 }
 
 export type DesignVariant = 'aegean' | 'byzantine' | 'rustic';
@@ -98,8 +106,13 @@ export interface SiteContent {
     message: string;
     image?: string;
   };
+  galleryPage?: {
+    title: string;
+    subtitle: string;
+  };
   categories: Category[];
   promoItems?: PromoItem[];
+  galleryImages?: GalleryImage[];
 }
 
 export interface SiteImages {

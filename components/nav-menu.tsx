@@ -15,6 +15,7 @@ export const Navigation: React.FC<NavigationProps> = ({ currentPage, onNavigate 
   const navItems = [
     { label: t('Acasă'), value: Page.HOME },
     { label: t('Meniu'), value: Page.MENU },
+    { label: t('Galerie'), value: Page.GALLERY },
     { label: t('Rezervări'), value: Page.RESERVATIONS },
     { label: t('Contact'), value: Page.CONTACT },
   ];

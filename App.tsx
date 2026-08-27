@@ -8,6 +8,7 @@ import { EventPopup } from './components/EventPopup';
 import { Home } from './pages/Home';
 import { MenuPage } from './pages/MenuPage';
 import { ReservationsPage } from './pages/ReservationsPage';
+import { GalleryPage } from './pages/GalleryPage';
 import { ContactPage } from './pages/ContactPage';
 import { AdminPage } from './pages/AdminPage';
 import { MenuProvider, useMenu } from './context/MenuContext';
@@ -28,8 +29,29 @@ const AppContent: React.FC = () => {
   const [showBeveragePreview, setShowBeveragePreview] = useState(false);
   const { isLoading, activeVariant } = useMenu();
 
-  // Handle URL parameters (like ?page=menu for QR codes)
+  // Handle URL parameters (like ?page=gallery or /gallery for direct links)
+  const getPageFromPath = (): Page | null => {
+    try {
+      const path = window.location.pathname.toLowerCase().replace(/^\/+|\/+$/g, '');
+      if (path === 'gallery' || path === 'galerie') return Page.GALLERY;
+      if (path === 'menu' || path === 'meniu') return Page.MENU;
+      if (path === 'reservations' || path === 'rezervari') return Page.RESERVATIONS;
+      if (path === 'contact') return Page.CONTACT;
+      if (path === 'admin') return Page.ADMIN;
+      if (path === 'inventory') return Page.INVENTORY;
+      if (path === '' || path === 'home') return Page.HOME;
+    } catch (e) {}
+    return null;
+  };
+
   useEffect(() => {
+    // 1. Check path
+    const pageFromPath = getPageFromPath();
+    if (pageFromPath) {
+      setCurrentPage(pageFromPath);
+    }
+
+    // 2. Check query params
     const params = new URLSearchParams(window.location.search);
     const pageParam = params.get('page');
     if (pageParam && Object.values(Page).includes(pageParam as Page)) {
@@ -45,7 +67,25 @@ const AppContent: React.FC = () => {
     } else if (params.get('preview') === 'print') {
       setShowPrintPreview(true);
     }
+
+    const handlePopState = () => {
+      const p = getPageFromPath();
+      if (p) setCurrentPage(p);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
+  const handleNavigate = (page: Page) => {
+    setCurrentPage(page);
+    try {
+      const targetUrl = page === Page.HOME ? '/' : `/${page}`;
+      if (window.location.pathname !== targetUrl) {
+        window.history.pushState(null, '', targetUrl);
+      }
+    } catch (e) {}
+  };
 
   // Scroll to top on page change
   useEffect(() => {
@@ -76,32 +116,34 @@ const AppContent: React.FC = () => {
   const renderPage = () => {
     switch (currentPage) {
       case Page.HOME:
-        return <Home setPage={setCurrentPage} />;
+        return <Home setPage={handleNavigate} />;
       case Page.MENU:
         return <MenuPage />;
+      case Page.GALLERY:
+        return <GalleryPage />;
       case Page.RESERVATIONS:
         return <ReservationsPage />;
       case Page.CONTACT:
         return <ContactPage />;
       case Page.ADMIN:
-        return <AdminPage onNavigate={setCurrentPage} />;
+        return <AdminPage onNavigate={handleNavigate} />;
       case Page.INVENTORY:
-        return <InventoryPage onNavigate={setCurrentPage} />;
+        return <InventoryPage onNavigate={handleNavigate} />;
       default:
-        return <Home setPage={setCurrentPage} />;
+        return <Home setPage={handleNavigate} />;
     }
   };
 
   return (
     <div className={`min-h-screen flex flex-col font-sans transition-colors duration-500 ${variantBgMap[activeVariant]}`}>
       <EventPopup />
-      <Navigation currentPage={currentPage} onNavigate={setCurrentPage} />
+      <Navigation currentPage={currentPage} onNavigate={handleNavigate} />
       
       <main className="flex-grow">
         {renderPage()}
       </main>
 
-      <Footer onNavigate={setCurrentPage} />
+      <Footer onNavigate={handleNavigate} />
       
       {/* Global Print Preview Modal */}
       {showPrintPreview && (

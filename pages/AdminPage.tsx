@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useMenu } from '../context/MenuContext';
-import { MenuItem, SiteImages, SiteContent, ReservationData, PromoItem, Page } from '../types';
+import { MenuItem, SiteImages, SiteContent, ReservationData, PromoItem, Page, GalleryImage } from '../types';
 import { dbDebugInfo, dbService, API_BASE_URL } from '../services/db';
 import { 
   Trash2, Upload, Plus, 
@@ -9,7 +9,8 @@ import {
   Loader2, AlertCircle,
   RefreshCcw, Home, Utensils, CalendarDays, Info,
   ShieldCheck, Activity, DatabaseZap, Download,
-  Eye, EyeOff, Layers, Settings2, ChevronUp, ChevronDown, Star, X
+  Eye, EyeOff, Layers, Settings2, ChevronUp, ChevronDown, Star, X,
+  Images, Camera, ChevronLeft, ChevronRight, Edit3, MessageSquare
 } from 'lucide-react';
 import { PrintMenuTemplate } from '../components/PrintMenuTemplate';
 import { TablematMenuTemplate } from '../components/TablematMenuTemplate';
@@ -22,9 +23,10 @@ interface AdminPageProps {
 
 export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   const { 
-    menuItems, siteImages, siteContent, isDbActive,
+    menuItems, siteImages, siteContent, galleryImages, isDbActive,
     updateMenuItem, deleteMenuItem, deleteHiddenMenuItems, addMenuItem, reorderMenuItems,
-    updateSiteImage, updateSiteContent, restoreDefaults
+    updateSiteImage, updateSiteContent, restoreDefaults,
+    addGalleryImages, updateGalleryImage, deleteGalleryImage, reorderGalleryImages
   } = useMenu();
   
   const [isAuthenticated, setIsAuthenticated] = useState(() => !!dbService.getAuthToken());
@@ -34,7 +36,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   
   const [activeCategory, setActiveCategory] = useState<string>('all');
-  const [activeTab, setActiveTab] = useState<'menu' | 'content' | 'images' | 'reservations' | 'system'>('menu');
+  const [activeTab, setActiveTab] = useState<'menu' | 'reservations' | 'gallery' | 'content' | 'images' | 'system'>('menu');
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [isPersisting, setIsPersisting] = useState<string | null>(null);
   const [reservations, setReservations] = useState<ReservationData[]>([]);
@@ -47,6 +49,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [isDeletingHidden, setIsDeletingHidden] = useState(false);
+
+  // Gallery Admin State
+  const [isUploadingGallery, setIsUploadingGallery] = useState(false);
+  const [galleryProgress, setGalleryProgress] = useState<{ current: number; total: number } | null>(null);
+  const [editingCaptionId, setEditingCaptionId] = useState<string | null>(null);
+  const [tempCaption, setTempCaption] = useState<string>('');
 
   // Add Product Modal State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -335,6 +343,62 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
     setIsPersisting(null);
     showSaveFeedback(`Importat cu succes ${processedCount} imagini/produse!`);
+  };
+
+  const handleGalleryMultiUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setIsUploadingGallery(true);
+    const fileList = Array.from(files);
+    setGalleryProgress({ current: 0, total: fileList.length });
+
+    const newItems: { url: string; caption?: string }[] = [];
+    try {
+      for (let i = 0; i < fileList.length; i++) {
+        setGalleryProgress({ current: i + 1, total: fileList.length });
+        const file = fileList[i];
+        const uploadedUrl = await dbService.uploadImage(file);
+        if (uploadedUrl) {
+          newItems.push({ url: uploadedUrl, caption: '' });
+        }
+      }
+
+      if (newItems.length > 0) {
+        await addGalleryImages(newItems);
+        showSaveFeedback(`${newItems.length} imagini adăugate în galerie!`);
+      }
+    } catch (err: any) {
+      console.error('Gallery upload error:', err);
+      alert('Eroare la încărcarea imaginilor în galerie: ' + (err?.message || 'Eroare necunoscută'));
+    } finally {
+      setIsUploadingGallery(false);
+      setGalleryProgress(null);
+      e.target.value = '';
+    }
+  };
+
+  const handleMoveGallery = async (index: number, direction: 'left' | 'right') => {
+    const targetIndex = direction === 'left' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= galleryImages.length) return;
+    const items = [...galleryImages];
+    const [moved] = items.splice(index, 1);
+    items.splice(targetIndex, 0, moved);
+    await reorderGalleryImages(items);
+    showSaveFeedback('Ordinea imaginilor a fost salvată');
+  };
+
+  const handleSaveCaption = async (id: string, newCaption: string) => {
+    await updateGalleryImage(id, { caption: newCaption.trim() });
+    setEditingCaptionId(null);
+    showSaveFeedback('Descriere salvată');
+  };
+
+  const handleDeleteGalleryImage = async (id: string) => {
+    if (confirm('Sigur doriți să ștergeți această imagine din galerie?')) {
+      await deleteGalleryImage(id);
+      showSaveFeedback('Imagine ștearsă din galerie');
+    }
   };
 
   const addCategory = () => {
@@ -641,6 +705,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
             {[
               { id: 'menu', icon: Utensils, label: 'Meniu' },
               { id: 'reservations', icon: CalendarDays, label: 'Rezervări' },
+              { id: 'gallery', icon: Images, label: 'Galerie' },
               { id: 'content', icon: Type, label: 'Texte' },
               { id: 'images', icon: ImageIcon, label: 'Media' },
               { id: 'system', icon: Settings2, label: 'Sistem' }
@@ -872,6 +937,208 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {activeTab === 'gallery' && (
+          <div className="space-y-8 animate-fade-in-up">
+            {/* Gallery Upload Section */}
+            <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-gray-200">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-6 mb-6">
+                <div>
+                  <h2 className="text-xl font-serif font-bold text-greek-blue flex items-center gap-2">
+                    <Images className="h-6 w-6 text-greek-blue" /> Galerie Foto Kvala
+                  </h2>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Încărcați mai multe fotografii simultan. Toate imaginile sunt salvate automat pe serverul backend (api.wizart.ro).
+                  </p>
+                </div>
+                <div className="text-xs font-mono font-bold bg-blue-50 text-greek-blue px-3 py-1.5 rounded-xl border border-blue-100 self-start sm:self-auto">
+                  {galleryImages.length} {galleryImages.length === 1 ? 'imagine' : 'imagini'} în galerie
+                </div>
+              </div>
+
+              {/* Upload Drop Zone / Button */}
+              <div className="mb-6">
+                <label 
+                  htmlFor="gallery-file-upload-input"
+                  className={`border-2 border-dashed rounded-2xl p-8 flex flex-col items-center justify-center cursor-pointer transition-all ${
+                    isUploadingGallery 
+                      ? 'border-greek-blue bg-blue-50/50 cursor-wait' 
+                      : 'border-gray-300 hover:border-greek-blue bg-gray-50/50 hover:bg-blue-50/20'
+                  }`}
+                >
+                  <input
+                    id="gallery-file-upload-input"
+                    type="file"
+                    multiple
+                    accept="image/jpeg,image/png,image/webp,image/avif"
+                    disabled={isUploadingGallery}
+                    onChange={handleGalleryMultiUpload}
+                    className="hidden"
+                  />
+
+                  {isUploadingGallery ? (
+                    <div className="text-center py-2">
+                      <Loader2 className="h-10 w-10 text-greek-blue animate-spin mx-auto mb-3" />
+                      <p className="font-bold text-sm text-gray-800">
+                        Se încarcă imaginile pe server...
+                      </p>
+                      {galleryProgress && (
+                        <p className="text-xs text-greek-blue font-mono font-bold mt-1">
+                          Procesat {galleryProgress.current} din {galleryProgress.total} fișiere
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-center py-2">
+                      <div className="w-14 h-14 rounded-full bg-blue-50 text-greek-blue flex items-center justify-center mx-auto mb-3 shadow-sm">
+                        <Upload className="h-7 w-7" />
+                      </div>
+                      <p className="font-bold text-sm text-gray-800 mb-1">
+                        Apasă pentru a selecta una sau mai multe fotografii
+                      </p>
+                      <p className="text-xs text-gray-500 max-w-md mx-auto">
+                        Acceptă fișiere JPG, PNG sau WebP. Poți alege mai multe fișiere deodată din galeria dispozitivului.
+                      </p>
+                    </div>
+                  )}
+                </label>
+              </div>
+
+              {/* Customizing page header text */}
+              <div className="bg-gray-50 p-5 rounded-xl border border-gray-200 mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                    Titlu Pagină Galerie (Public)
+                  </label>
+                  <input
+                    type="text"
+                    value={siteContent.galleryPage?.title || 'Galerie Kvala'}
+                    onChange={e => updateSiteContent('galleryPage', 'title', e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm text-gray-800 focus:ring-2 focus:ring-greek-blue outline-none"
+                    placeholder="Ex: Galerie Kvala"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                    Subtitlu Pagină Galerie (Public)
+                  </label>
+                  <input
+                    type="text"
+                    value={siteContent.galleryPage?.subtitle || ''}
+                    onChange={e => updateSiteContent('galleryPage', 'subtitle', e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm text-gray-800 focus:ring-2 focus:ring-greek-blue outline-none"
+                    placeholder="Ex: Momente autentice, preparate proaspete..."
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Gallery Images List */}
+            <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-gray-200">
+              <h3 className="text-lg font-serif font-bold text-gray-900 mb-6 flex items-center justify-between">
+                <span>Fotografii în Galerie ({galleryImages.length})</span>
+                <span className="text-xs font-normal text-gray-500">
+                  Folosiți săgețile &larr; &rarr; pentru reordonare
+                </span>
+              </h3>
+
+              {galleryImages.length === 0 ? (
+                <div className="text-center py-12 border-2 border-dashed border-gray-200 rounded-2xl text-gray-400">
+                  <Camera className="h-10 w-10 mx-auto mb-2 text-gray-300" />
+                  <p className="text-sm font-medium">Nu există fotografii încărcate în galerie.</p>
+                  <p className="text-xs text-gray-400 mt-1">Încărcați primele imagini folosind zona de mai sus.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                  {galleryImages.map((image, index) => (
+                    <div 
+                      key={image.id || index}
+                      className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between"
+                    >
+                      {/* Image Thumbnail Container */}
+                      <div className="relative aspect-square bg-gray-100 overflow-hidden group">
+                        <img 
+                          src={image.url} 
+                          alt={image.caption || `Galerie ${index + 1}`}
+                          className="w-full h-full object-cover"
+                        />
+
+                        {/* Order badge */}
+                        <div className="absolute top-2 left-2 px-2.5 py-1 rounded-lg bg-black/70 backdrop-blur-md text-white text-xs font-mono font-bold">
+                          #{index + 1}
+                        </div>
+
+                        {/* Quick Delete button */}
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteGalleryImage(image.id)}
+                          className="absolute top-2 right-2 p-2 rounded-lg bg-red-600/80 hover:bg-red-600 text-white backdrop-blur-md transition-colors"
+                          title="Șterge imaginea"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+
+                      {/* Controls and Caption */}
+                      <div className="p-4 flex flex-col justify-between flex-1 gap-3 bg-white">
+                        {/* Caption input */}
+                        <div>
+                          <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">
+                            Descriere / Legendă
+                          </label>
+                          <input
+                            type="text"
+                            defaultValue={image.caption || ''}
+                            onBlur={e => handleSaveCaption(image.id, e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') {
+                                (e.target as HTMLInputElement).blur();
+                              }
+                            }}
+                            placeholder="Adaugă o scurtă descriere..."
+                            className="w-full px-3 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-lg text-gray-800 focus:bg-white focus:ring-2 focus:ring-greek-blue outline-none transition-all"
+                          />
+                        </div>
+
+                        {/* Reorder & Action buttons */}
+                        <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              disabled={index === 0}
+                              onClick={() => handleMoveGallery(index, 'left')}
+                              className="p-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                              title="Mută la stânga (mai devreme)"
+                            >
+                              <ChevronLeft className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={index === galleryImages.length - 1}
+                              onClick={() => handleMoveGallery(index, 'right')}
+                              className="p-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                              title="Mută la dreapta (mai târziu)"
+                            >
+                              <ChevronRight className="h-4 w-4" />
+                            </button>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteGalleryImage(image.id)}
+                            className="text-xs font-bold text-red-600 hover:text-red-700 hover:underline flex items-center gap-1"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" /> Șterge
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
