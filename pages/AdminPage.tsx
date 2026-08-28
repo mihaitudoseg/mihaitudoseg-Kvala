@@ -16,6 +16,8 @@ import { PrintMenuTemplate } from '../components/PrintMenuTemplate';
 import { TablematMenuTemplate } from '../components/TablematMenuTemplate';
 import { WineMenuTemplate } from '../components/WineMenuTemplate';
 import { BeverageMenuTemplate } from '../components/BeverageMenuTemplate';
+import { AdminProductImageDropzone } from '../components/AdminProductImageDropzone';
+import { processMenuImage } from '../utils/imageProcessor';
 
 interface AdminPageProps {
   onNavigate: (page: Page) => void;
@@ -172,18 +174,26 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     }
   };
 
-  const handleModalImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (newProductForm.imagePreview) {
-        URL.revokeObjectURL(newProductForm.imagePreview);
-      }
-      setNewProductForm(prev => ({
-        ...prev,
-        imageFile: file,
-        imagePreview: URL.createObjectURL(file)
-      }));
+  const handleModalImageProcess = (processedFile: File) => {
+    if (newProductForm.imagePreview) {
+      URL.revokeObjectURL(newProductForm.imagePreview);
     }
+    setNewProductForm(prev => ({
+      ...prev,
+      imageFile: processedFile,
+      imagePreview: URL.createObjectURL(processedFile)
+    }));
+  };
+
+  const handleModalImageRemove = () => {
+    if (newProductForm.imagePreview) {
+      URL.revokeObjectURL(newProductForm.imagePreview);
+    }
+    setNewProductForm(prev => ({
+      ...prev,
+      imageFile: null,
+      imagePreview: null
+    }));
   };
 
   const handleCreateProductSubmit = async (e: React.FormEvent) => {
@@ -284,13 +294,40 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     }
   };
 
+  const handleMenuProductImageUploaded = async (id: string, processedFile: File) => {
+    setIsPersisting(id);
+    try {
+      const uploadedUrl = await dbService.uploadImage(processedFile);
+      await updateMenuItem(id, { image: uploadedUrl });
+      showSaveFeedback("Imagine preparat salvată (16:10 WebP)!");
+    } catch (err: any) {
+      console.error('Error uploading menu product image:', err);
+      alert(`Eroare la încărcarea imaginii: ${err.message || 'Eroare necunoscută'}`);
+    } finally {
+      setIsPersisting(null);
+    }
+  };
+
+  const handleRemoveProductImage = async (id: string) => {
+    setIsPersisting(id);
+    try {
+      await updateMenuItem(id, { image: undefined });
+      showSaveFeedback("Imagine preparat ștearsă!");
+    } catch (err: any) {
+      alert(`Eroare la ștergerea imaginii: ${err.message}`);
+    } finally {
+      setIsPersisting(null);
+    }
+  };
+
   const handleImageUpload = async (id: string, e: React.ChangeEvent<HTMLInputElement>, isMenu = true) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setIsPersisting(id);
     try {
-      const uploadedUrl = await dbService.uploadImage(file);
+      const fileToUpload = isMenu ? await processMenuImage(file) : file;
+      const uploadedUrl = await dbService.uploadImage(fileToUpload);
       if (isMenu) {
         await updateMenuItem(id, { image: uploadedUrl });
       } else {
@@ -316,7 +353,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
       const productName = file.name.replace(/\.[^/.]+$/, "").trim();
       
       try {
-        const uploadedUrl = await dbService.uploadImage(file);
+        const processedFile = await processMenuImage(file);
+        const uploadedUrl = await dbService.uploadImage(processedFile);
         const existingItem = menuItems.find(item => 
           item.name.toLowerCase().trim() === productName.toLowerCase()
         );
@@ -640,27 +678,16 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
               </div>
 
               <div>
-                <label className={labelClass}>Imagine Preparat (opțional)</label>
-                <div className="flex items-center gap-4">
-                  {newProductForm.imagePreview ? (
-                    <div className="w-16 h-16 rounded-xl overflow-hidden bg-gray-100 border relative flex-shrink-0">
-                      <img src={newProductForm.imagePreview} alt="Preview" className="w-full h-full object-cover" />
-                    </div>
-                  ) : (
-                    <div className="w-16 h-16 rounded-xl border-2 border-dashed border-gray-200 flex items-center justify-center text-gray-400 flex-shrink-0">
-                      <ImageIcon className="h-6 w-6" />
-                    </div>
-                  )}
-                  <label className="flex-1 cursor-pointer py-2 px-3 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-xl text-xs font-bold text-gray-700 flex items-center justify-center gap-2 transition">
-                    <Upload className="h-4 w-4 text-greek-blue" />
-                    <span>{newProductForm.imageFile ? newProductForm.imageFile.name : 'Alege Fișier Imagine'}</span>
-                    <input 
-                      type="file" 
-                      accept="image/*" 
-                      onChange={handleModalImageChange} 
-                      className="hidden" 
-                    />
-                  </label>
+                <label className={labelClass}>Imagine Preparat (opțional, 16:10 WebP)</label>
+                <div className="w-full max-w-xs">
+                  <AdminProductImageDropzone
+                    itemId="new-product"
+                    imageUrl={newProductForm.imagePreview || undefined}
+                    itemName={newProductForm.name || 'Produs Nou'}
+                    isUploading={false}
+                    onImageUploaded={handleModalImageProcess}
+                    onRemoveImage={handleModalImageRemove}
+                  />
                 </div>
               </div>
 
@@ -794,16 +821,18 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
             <div className="grid grid-cols-1 gap-4">
               {menuItems.filter(item => activeCategory === 'all' || item.category === activeCategory).map(item => (
-                <div key={item.id} className={`bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col md:flex-row transition-all hover:border-greek-blue/30 ${item.isHidden ? 'opacity-50 border-dashed bg-gray-50/50' : ''}`}>
-                  <div className="w-full md:w-40 h-40 bg-gray-50 relative group flex-shrink-0">
-                    {item.image ? <img src={item.image} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-300"><ImageIcon className="h-8 w-8" /></div>}
-                    <label className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center cursor-pointer text-white text-[10px] font-black uppercase transition-opacity">
-                      {isPersisting === item.id ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Upload className="h-4 w-4 mr-1" />}
-                      {isPersisting === item.id ? 'Se încarcă...' : 'Schimbă Poza'}
-                      <input type="file" accept="image/*" className="hidden" onChange={e => handleImageUpload(item.id, e)} />
-                    </label>
+                <div key={item.id} className={`bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col md:flex-row p-4 sm:p-5 gap-4 sm:gap-6 items-start transition-all hover:border-greek-blue/30 ${item.isHidden ? 'opacity-50 border-dashed bg-gray-50/50' : ''}`}>
+                  <div className="w-full md:w-52 lg:w-56 flex-shrink-0">
+                    <AdminProductImageDropzone
+                      itemId={item.id}
+                      imageUrl={item.image}
+                      itemName={item.name}
+                      isUploading={isPersisting === item.id}
+                      onImageUploaded={(processedFile) => handleMenuProductImageUploaded(item.id, processedFile)}
+                      onRemoveImage={() => handleRemoveProductImage(item.id)}
+                    />
                   </div>
-                  <div className="p-5 flex-1 grid grid-cols-1 lg:grid-cols-4 gap-4">
+                  <div className="flex-1 w-full grid grid-cols-1 lg:grid-cols-4 gap-4">
                     <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-4">
                        <div className="md:col-span-2">
                          <label className={labelClass}>Nume Preparat {item.isHidden && <span className="text-red-500 font-black ml-2">[ASCUNS DIN MENIU]</span>}</label>
