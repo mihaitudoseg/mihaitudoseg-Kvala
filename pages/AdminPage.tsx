@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useMenu } from '../context/MenuContext';
 import { MenuItem, SiteImages, SiteContent, ReservationData, PromoItem, Page, GalleryImage } from '../types';
 import { dbDebugInfo, dbService, API_BASE_URL } from '../services/db';
@@ -10,7 +10,8 @@ import {
   RefreshCcw, Home, Utensils, CalendarDays, Info,
   ShieldCheck, Activity, DatabaseZap, Download,
   Eye, EyeOff, Layers, Settings2, ChevronUp, ChevronDown, Star, X,
-  Images, Camera, ChevronLeft, ChevronRight, Edit3, MessageSquare
+  Images, Camera, ChevronLeft, ChevronRight, Edit3, MessageSquare,
+  GripVertical
 } from 'lucide-react';
 import { PrintMenuTemplate } from '../components/PrintMenuTemplate';
 import { TablematMenuTemplate } from '../components/TablematMenuTemplate';
@@ -52,8 +53,15 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   const [isResetting, setIsResetting] = useState(false);
   const [isDeletingHidden, setIsDeletingHidden] = useState(false);
 
+  // Category Reorder State
+  const [draggedCategoryIndex, setDraggedCategoryIndex] = useState<number | null>(null);
+  const [dragOverCategoryIndex, setDragOverCategoryIndex] = useState<number | null>(null);
+
   // Gallery Admin State
   const [isUploadingGallery, setIsUploadingGallery] = useState(false);
+  const [isGalleryDragOver, setIsGalleryDragOver] = useState(false);
+  const galleryDragCounter = useRef(0);
+  const galleryFileInputRef = useRef<HTMLInputElement>(null);
   const [galleryProgress, setGalleryProgress] = useState<{ current: number; total: number } | null>(null);
   const [editingCaptionId, setEditingCaptionId] = useState<string | null>(null);
   const [tempCaption, setTempCaption] = useState<string>('');
@@ -383,28 +391,48 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     showSaveFeedback(`Importat cu succes ${processedCount} imagini/produse!`);
   };
 
-  const handleGalleryMultiUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
+  const uploadGalleryFiles = async (files: FileList | File[]) => {
     if (!files || files.length === 0) return;
 
+    const rawList = Array.from(files);
+    const imageFiles = rawList.filter(f => f.type.startsWith('image/'));
+
+    if (imageFiles.length === 0) {
+      alert('Vă rugăm să selectați fișiere imagine valide (JPG, PNG, WebP, AVIF).');
+      return;
+    }
+
     setIsUploadingGallery(true);
-    const fileList = Array.from(files);
-    setGalleryProgress({ current: 0, total: fileList.length });
+    setGalleryProgress({ current: 0, total: imageFiles.length });
 
     const newItems: { url: string; caption?: string }[] = [];
+    let failureCount = 0;
+
     try {
-      for (let i = 0; i < fileList.length; i++) {
-        setGalleryProgress({ current: i + 1, total: fileList.length });
-        const file = fileList[i];
-        const uploadedUrl = await dbService.uploadImage(file);
-        if (uploadedUrl) {
-          newItems.push({ url: uploadedUrl, caption: '' });
+      for (let i = 0; i < imageFiles.length; i++) {
+        setGalleryProgress({ current: i + 1, total: imageFiles.length });
+        const file = imageFiles[i];
+        try {
+          // Direct upload to server - preserves original proportions and dimensions
+          const uploadedUrl = await dbService.uploadImage(file);
+          if (uploadedUrl) {
+            newItems.push({ url: uploadedUrl, caption: '' });
+          }
+        } catch (uploadErr) {
+          console.error(`Error uploading gallery image ${file.name}:`, uploadErr);
+          failureCount++;
         }
       }
 
       if (newItems.length > 0) {
         await addGalleryImages(newItems);
-        showSaveFeedback(`${newItems.length} imagini adăugate în galerie!`);
+        if (failureCount > 0) {
+          showSaveFeedback(`${newItems.length} imagini adăugate (${failureCount} eșuate).`);
+        } else {
+          showSaveFeedback(`${newItems.length} ${newItems.length === 1 ? 'imagine adăugată' : 'imagini adăugate'} în galerie!`);
+        }
+      } else if (failureCount > 0) {
+        alert('Nu s-a putut încărca nicio imagine pe server. Vă rugăm să verificați conexiunea sau autentificarea.');
       }
     } catch (err: any) {
       console.error('Gallery upload error:', err);
@@ -412,7 +440,67 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     } finally {
       setIsUploadingGallery(false);
       setGalleryProgress(null);
+      if (galleryFileInputRef.current) {
+        galleryFileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleGalleryInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      await uploadGalleryFiles(files);
+    }
+    if (e.target) {
       e.target.value = '';
+    }
+  };
+
+  const handleGalleryDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    galleryDragCounter.current += 1;
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setIsGalleryDragOver(true);
+    }
+  };
+
+  const handleGalleryDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+    if (!isGalleryDragOver) {
+      setIsGalleryDragOver(true);
+    }
+  };
+
+  const handleGalleryDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    galleryDragCounter.current -= 1;
+    if (galleryDragCounter.current <= 0) {
+      galleryDragCounter.current = 0;
+      setIsGalleryDragOver(false);
+    }
+  };
+
+  const handleGalleryDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    galleryDragCounter.current = 0;
+    setIsGalleryDragOver(false);
+
+    if (isUploadingGallery) return;
+
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      await uploadGalleryFiles(files);
+    }
+  };
+
+  const handleGalleryZoneClick = () => {
+    if (!isUploadingGallery) {
+      galleryFileInputRef.current?.click();
     }
   };
 
@@ -465,6 +553,37 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     const newCats = siteContent.categories.map(c => c.id === id ? { ...c, isHidden: !c.isHidden } : c);
     updateSiteContent('categories', '', newCats);
     showSaveFeedback(newCats.find(c => c.id === id)?.isHidden ? "Categorie ascunsă" : "Categorie vizibilă");
+  };
+
+  const moveCategory = async (index: number, direction: 'up' | 'down') => {
+    const categories = siteContent.categories || [];
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= categories.length) return;
+
+    const newCats = [...categories];
+    const [moved] = newCats.splice(index, 1);
+    newCats.splice(targetIndex, 0, moved);
+
+    await updateSiteContent('categories', '', newCats);
+    showSaveFeedback("Ordinea categoriilor a fost salvată");
+  };
+
+  const handleCategoryDrop = async (dropIndex: number) => {
+    if (draggedCategoryIndex === null || draggedCategoryIndex === dropIndex) {
+      setDraggedCategoryIndex(null);
+      setDragOverCategoryIndex(null);
+      return;
+    }
+    const categories = siteContent.categories || [];
+    const newCats = [...categories];
+    const [moved] = newCats.splice(draggedCategoryIndex, 1);
+    newCats.splice(dropIndex, 0, moved);
+
+    setDraggedCategoryIndex(null);
+    setDragOverCategoryIndex(null);
+
+    await updateSiteContent('categories', '', newCats);
+    showSaveFeedback("Ordinea categoriilor a fost salvată");
   };
 
   const moveItem = async (id: string, direction: 'up' | 'down') => {
@@ -765,30 +884,130 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
         {activeTab === 'menu' && (
           <div className="space-y-8 animate-fade-in-up">
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-               <h2 className="text-lg font-serif font-bold text-greek-blue mb-4 flex items-center gap-2"><Layers className="h-5 w-5" /> Gestionare Categorii</h2>
+               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+                 <h2 className="text-lg font-serif font-bold text-greek-blue flex items-center gap-2">
+                   <Layers className="h-5 w-5" /> Gestionare Categorii
+                 </h2>
+                 <span className="text-xs text-gray-500">
+                   Trageți de mânerul <span className="font-mono font-bold">⋮⋮</span> sau folosiți săgețile <span className="font-bold">▲ ▼</span> pentru a reordona categoriile
+                 </span>
+               </div>
                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                  {siteContent.categories?.map(cat => (
-                    <div key={cat.id} className={`p-3 border rounded-xl flex items-center justify-between transition-all ${cat.isHidden ? 'bg-gray-50 opacity-60' : 'bg-white shadow-sm border-gray-100'}`}>
-                       <div className="flex flex-col flex-1 mr-2">
-                         <input 
-                           type="text" 
-                           value={cat.label} 
-                           onChange={(e) => renameCategory(cat.id, e.target.value)}
-                           onBlur={() => showSaveFeedback("Nume categorie salvat")}
-                           className="text-xs font-bold text-gray-800 bg-transparent border-none focus:ring-0 p-0 w-full"
-                         />
-                         <span className="text-[9px] text-gray-400 font-mono tracking-tighter">{cat.id}</span>
-                       </div>
-                       <div className="flex gap-1">
-                         <button onClick={() => toggleCategoryVisibility(cat.id)} className="p-1.5 hover:bg-blue-50 rounded text-gray-400 hover:text-greek-blue transition-colors">
-                           {cat.isHidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                         </button>
-                         <button onClick={() => deleteCategory(cat.id)} className="p-1.5 hover:bg-red-50 rounded text-red-200 hover:text-red-500 transition-colors">
-                           <Trash2 className="h-4 w-4" />
-                         </button>
-                       </div>
-                    </div>
-                  ))}
+                  {siteContent.categories?.map((cat, index) => {
+                    const isFirst = index === 0;
+                    const isLast = index === (siteContent.categories?.length || 1) - 1;
+                    const isDragging = draggedCategoryIndex === index;
+                    const isOver = dragOverCategoryIndex === index;
+
+                    return (
+                      <div 
+                        key={cat.id} 
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData('text/plain', index.toString());
+                          e.dataTransfer.effectAllowed = 'move';
+                          setDraggedCategoryIndex(index);
+                        }}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                          if (dragOverCategoryIndex !== index) {
+                            setDragOverCategoryIndex(index);
+                          }
+                        }}
+                        onDragLeave={() => {
+                          if (dragOverCategoryIndex === index) {
+                            setDragOverCategoryIndex(null);
+                          }
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          handleCategoryDrop(index);
+                        }}
+                        onDragEnd={() => {
+                          setDraggedCategoryIndex(null);
+                          setDragOverCategoryIndex(null);
+                        }}
+                        className={`p-3 border rounded-xl flex items-center justify-between transition-all select-none ${
+                          isDragging 
+                            ? 'opacity-40 scale-95 border-dashed border-greek-blue bg-blue-50/40 shadow-inner' 
+                            : isOver
+                            ? 'border-greek-blue ring-2 ring-greek-blue/40 bg-blue-50/50 shadow-md'
+                            : cat.isHidden 
+                            ? 'bg-gray-50 opacity-60 border-gray-200' 
+                            : 'bg-white shadow-sm border-gray-100 hover:border-gray-300'
+                        }`}
+                      >
+                         {/* Drag Handle & Up/Down Arrows */}
+                         <div className="flex items-center gap-1 mr-2 flex-shrink-0">
+                           <div 
+                             className="cursor-grab active:cursor-grabbing p-1 text-gray-400 hover:text-greek-blue rounded transition-colors"
+                             title="Trage pentru a reordona categoria"
+                           >
+                             <GripVertical className="h-4 w-4" />
+                           </div>
+                           <div className="flex flex-col gap-0.5">
+                             <button
+                               type="button"
+                               disabled={isFirst}
+                               onClick={() => moveCategory(index, 'up')}
+                               className={`p-0.5 rounded transition-colors ${
+                                 isFirst ? 'text-gray-200 cursor-not-allowed' : 'text-gray-400 hover:text-greek-blue hover:bg-blue-50'
+                               }`}
+                               title="Mută categoria mai sus"
+                               aria-label="Mută categoria mai sus"
+                             >
+                               <ChevronUp className="h-3.5 w-3.5" />
+                             </button>
+                             <button
+                               type="button"
+                               disabled={isLast}
+                               onClick={() => moveCategory(index, 'down')}
+                               className={`p-0.5 rounded transition-colors ${
+                                 isLast ? 'text-gray-200 cursor-not-allowed' : 'text-gray-400 hover:text-greek-blue hover:bg-blue-50'
+                               }`}
+                               title="Mută categoria mai jos"
+                               aria-label="Mută categoria mai jos"
+                             >
+                               <ChevronDown className="h-3.5 w-3.5" />
+                             </button>
+                           </div>
+                         </div>
+
+                         {/* Category Name & ID */}
+                         <div className="flex flex-col flex-1 min-w-0 mr-2">
+                           <input 
+                             type="text" 
+                             value={cat.label} 
+                             onChange={(e) => renameCategory(cat.id, e.target.value)}
+                             onBlur={() => showSaveFeedback("Nume categorie salvat")}
+                             className="text-xs font-bold text-gray-800 bg-transparent border-none focus:ring-0 p-0 w-full truncate"
+                           />
+                           <span className="text-[9px] text-gray-400 font-mono tracking-tighter truncate">{cat.id}</span>
+                         </div>
+
+                         {/* Visibility & Delete Actions */}
+                         <div className="flex gap-1 flex-shrink-0">
+                           <button 
+                             type="button"
+                             onClick={() => toggleCategoryVisibility(cat.id)} 
+                             className="p-1.5 hover:bg-blue-50 rounded text-gray-400 hover:text-greek-blue transition-colors"
+                             title={cat.isHidden ? "Afișează categoria" : "Ascunde categoria"}
+                           >
+                             {cat.isHidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                           </button>
+                           <button 
+                             type="button"
+                             onClick={() => deleteCategory(cat.id)} 
+                             className="p-1.5 hover:bg-red-50 rounded text-red-200 hover:text-red-500 transition-colors"
+                             title="Șterge categoria"
+                           >
+                             <Trash2 className="h-4 w-4" />
+                           </button>
+                         </div>
+                      </div>
+                    );
+                  })}
                   <div className="p-1 bg-white border border-dashed border-gray-300 rounded-xl flex items-center gap-2">
                      <input 
                        type="text" 
@@ -797,7 +1016,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                        onChange={e => setNewCatLabel(e.target.value)} 
                        className="flex-1 bg-white px-3 py-2 text-xs outline-none text-gray-900 placeholder-gray-400" 
                      />
-                     <button onClick={addCategory} className="bg-greek-blue text-white p-2 rounded-lg hover:bg-blue-700 transition mr-1"><Plus className="h-4 w-4" /></button>
+                     <button onClick={addCategory} className="bg-greek-blue text-white p-2 rounded-lg hover:bg-blue-700 transition mr-1" title="Adaugă categorie"><Plus className="h-4 w-4" /></button>
                   </div>
                </div>
             </div>
@@ -989,21 +1208,37 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
               {/* Upload Drop Zone / Button */}
               <div className="mb-6">
-                <label 
-                  htmlFor="gallery-file-upload-input"
-                  className={`border-2 border-dashed rounded-2xl p-8 flex flex-col items-center justify-center cursor-pointer transition-all ${
-                    isUploadingGallery 
+                <div 
+                  id="gallery-upload-dropzone"
+                  onClick={handleGalleryZoneClick}
+                  onDragEnter={handleGalleryDragEnter}
+                  onDragOver={handleGalleryDragOver}
+                  onDragLeave={handleGalleryDragLeave}
+                  onDrop={handleGalleryDrop}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      handleGalleryZoneClick();
+                    }
+                  }}
+                  className={`border-2 border-dashed rounded-2xl p-8 sm:p-10 flex flex-col items-center justify-center cursor-pointer transition-all select-none ${
+                    isGalleryDragOver
+                      ? 'border-greek-blue bg-blue-50/70 ring-4 ring-greek-blue/30 scale-[1.01] shadow-lg'
+                      : isUploadingGallery 
                       ? 'border-greek-blue bg-blue-50/50 cursor-wait' 
                       : 'border-gray-300 hover:border-greek-blue bg-gray-50/50 hover:bg-blue-50/20'
                   }`}
                 >
                   <input
+                    ref={galleryFileInputRef}
                     id="gallery-file-upload-input"
                     type="file"
                     multiple
                     accept="image/jpeg,image/png,image/webp,image/avif"
                     disabled={isUploadingGallery}
-                    onChange={handleGalleryMultiUpload}
+                    onChange={handleGalleryInputChange}
                     className="hidden"
                   />
 
@@ -1011,7 +1246,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                     <div className="text-center py-2">
                       <Loader2 className="h-10 w-10 text-greek-blue animate-spin mx-auto mb-3" />
                       <p className="font-bold text-sm text-gray-800">
-                        Se încarcă imaginile pe server...
+                        Se încarcă fotografiile pe server...
                       </p>
                       {galleryProgress && (
                         <p className="text-xs text-greek-blue font-mono font-bold mt-1">
@@ -1019,20 +1254,32 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                         </p>
                       )}
                     </div>
+                  ) : isGalleryDragOver ? (
+                    <div className="text-center py-2 animate-fade-in pointer-events-none">
+                      <div className="w-16 h-16 rounded-full bg-greek-blue text-white flex items-center justify-center mx-auto mb-3 shadow-md animate-bounce">
+                        <Upload className="h-8 w-8" />
+                      </div>
+                      <p className="font-bold text-base text-greek-blue mb-1 uppercase tracking-wide">
+                        Eliberează fotografiile pentru încărcare
+                      </p>
+                      <p className="text-xs text-gray-600 max-w-md mx-auto font-medium">
+                        Toate imaginile vor fi încărcate automat pe server
+                      </p>
+                    </div>
                   ) : (
-                    <div className="text-center py-2">
-                      <div className="w-14 h-14 rounded-full bg-blue-50 text-greek-blue flex items-center justify-center mx-auto mb-3 shadow-sm">
+                    <div className="text-center py-2 pointer-events-none">
+                      <div className="w-14 h-14 rounded-full bg-blue-50 text-greek-blue flex items-center justify-center mx-auto mb-3 shadow-sm group-hover:scale-105 transition-transform">
                         <Upload className="h-7 w-7" />
                       </div>
                       <p className="font-bold text-sm text-gray-800 mb-1">
-                        Apasă pentru a selecta una sau mai multe fotografii
+                        Apasă sau trage fotografii aici pentru încărcare
                       </p>
                       <p className="text-xs text-gray-500 max-w-md mx-auto">
-                        Acceptă fișiere JPG, PNG sau WebP. Poți alege mai multe fișiere deodată din galeria dispozitivului.
+                        Acceptă fișiere JPG, PNG, WebP sau AVIF. Poți trage sau selecta mai multe fotografii simultan.
                       </p>
                     </div>
                   )}
-                </label>
+                </div>
               </div>
 
               {/* Customizing page header text */}
